@@ -170,23 +170,32 @@ const LEASE_MS = 90_000
 export async function flushNotifications(): Promise<void> {
   const settings = await getSettings()
   const stale = new Date(Date.now() - LEASE_MS)
+  // A slow send used to leave rows pending with an expired lease, so the next
+  // tick claimed them again and delivered the same alert twice.
+  await prisma.notification.updateMany({
+    where: { status: "sending", leasedAt: { lt: stale } },
+    data: { status: "pending", leasedAt: null },
+  })
   const claimed = await prisma.$transaction(async (tx) => {
     const pending = await tx.notification.findMany({
       where: {
         status: "pending",
         channel: { not: "socket" },
-        OR: [{ leasedAt: null }, { leasedAt: { lt: stale } }],
       },
       take: 20,
       orderBy: { createdAt: "asc" },
     })
     if (pending.length === 0) return []
     const now = new Date()
-    await tx.notification.updateMany({
-      where: { id: { in: pending.map((row) => row.id) } },
-      data: { leasedAt: now },
-    })
-    return pending
+    const owned: typeof pending = []
+    for (const row of pending) {
+      const updated = await tx.notification.updateMany({
+        where: { id: row.id, status: "pending" },
+        data: { status: "sending", leasedAt: now },
+      })
+      if (updated.count === 1) owned.push(row)
+    }
+    return owned
   })
 
   for (const row of claimed) {
@@ -198,17 +207,21 @@ export async function flushNotifications(): Promise<void> {
       } else if (row.channel === "smtp") {
         await sendSmtp(settings, row.title, row.body)
       } else {
+        await prisma.notification.updateMany({
+          where: { id: row.id, status: "sending" },
+          data: { status: "failed", lastError: "unsupported channel", leasedAt: null, attempts: { increment: 1 } },
+        })
         continue
       }
-      await prisma.notification.update({
-        where: { id: row.id },
+      await prisma.notification.updateMany({
+        where: { id: row.id, status: "sending" },
         data: { status: "sent", sentAt: new Date(), attempts: { increment: 1 }, leasedAt: null },
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : "send failed"
       const attempts = row.attempts + 1
-      await prisma.notification.update({
-        where: { id: row.id },
+      await prisma.notification.updateMany({
+        where: { id: row.id, status: "sending" },
         data: {
           attempts,
           lastError: message,

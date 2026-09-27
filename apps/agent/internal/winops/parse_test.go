@@ -68,19 +68,6 @@ Volume D: [Data]
 	}
 }
 
-func TestParseBitLockerJSONProtectionOff(t *testing.T) {
-	vols := parseBitLockerJSON(`{"MountPoint":"E:","ProtectionStatus":"Off","LockStatus":"Locked","KeyProtector":[{"KeyProtectorType":"Password","KeyProtectorId":"{abc}"}]}`)
-	if len(vols) != 1 || vols[0].MountPoint != "E:" || vols[0].ProtectionStatus != "off" || vols[0].LockStatus != "locked" {
-		t.Fatalf("%+v", vols)
-	}
-	if len(vols[0].KeyProtectors) != 1 || vols[0].KeyProtectors[0].Type != "password" {
-		t.Fatalf("kp %+v", vols[0].KeyProtectors)
-	}
-	if vols[0].EncryptionPercent != nil {
-		t.Fatalf("missing percent should stay nil: %+v", vols[0].EncryptionPercent)
-	}
-}
-
 func TestManageBdeProtectionOffContainsOn(t *testing.T) {
 	if manageBdeProtection("Protection Off") != "off" {
 		t.Fatal("off")

@@ -561,6 +561,106 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
+func parseCIMDate(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) < 14 {
+		if _, err := time.Parse(time.RFC3339, s); err == nil {
+			return s
+		}
+		return s
+	}
+	// yyyymmddHHMMSS.mmmmmmsUUU
+	raw := s[:14]
+	t, err := time.Parse("20060102150405", raw)
+	if err != nil || t.Year() < 2000 {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func defenderComputerState(v int) string {
+	switch v {
+	case 0:
+		return "clean"
+	case 1:
+		return "pending_full_scan"
+	case 2:
+		return "pending_reboot"
+	case 4:
+		return "pending_manual_steps"
+	case 8:
+		return "pending_offline_scan"
+	case 16:
+		return "pending_critical_failure"
+	default:
+		return "other"
+	}
+}
+
+func mapsName(v int) string {
+	switch v {
+	case 0:
+		return "disabled"
+	case 1:
+		return "basic"
+	case 2:
+		return "advanced"
+	default:
+		return ""
+	}
+}
+
+func onOffAudit(v int) string {
+	switch v {
+	case 0:
+		return "disabled"
+	case 1:
+		return "enabled"
+	case 2:
+		return "audit"
+	default:
+		return ""
+	}
+}
+
+func threatSeverity(v int) string {
+	switch v {
+	case 0:
+		return "unknown"
+	case 1:
+		return "low"
+	case 2:
+		return "moderate"
+	case 4:
+		return "high"
+	case 5:
+		return "severe"
+	default:
+		return strconv.Itoa(v)
+	}
+}
+
+func threatActionName(v int) string {
+	switch v {
+	case 1:
+		return "clean"
+	case 2:
+		return "quarantine"
+	case 3:
+		return "remove"
+	case 6:
+		return "allow"
+	case 8:
+		return "user_defined"
+	case 9:
+		return "no_action"
+	case 10:
+		return "block"
+	default:
+		return ""
+	}
+}
+
 func fillScanProgress(st *DefenderStatus) {
 	if st == nil {
 		return

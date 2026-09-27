@@ -110,6 +110,7 @@ model Command {
 
   @@index([deviceId, status])
   @@index([deviceId, createdAt])
+  @@index([deviceId, type, status, createdAt])
   @@index([status, updatedAt])
   @@index([createdAt])
 }
