@@ -1,0 +1,23 @@
+server_url: http://localhost:4000
+fallback_urls: []
+enrollment_secret: change-me-enrollment-secret
+# device_id / device_key are written after enroll — never commit them
+# Idle heartbeats are 90s; watched devices use watched_heartbeat_sec.
+heartbeat_interval_sec: 90
+idle_heartbeat_sec: 90
+watched_heartbeat_sec: 15
+poll_interval_sec: 15
+screenshot_interval_sec: 0
+auto_restart_time: ""
+# Empty data_dir keeps the default (~/.pc-manager). Do not set "" expecting a wipe.
+data_dir: ""
+status_port: 17890
+sandbox_roots: []
+lightweight: true
+# Optional collectors (off by default — biggest CPU win after process cache)
+enable_gpu: false
+enable_temps: false
+# Stamp-builder feature flags (plugins on by default)
+enable_plugins: true
+enable_screenshot: true
+enable_webrtc: false

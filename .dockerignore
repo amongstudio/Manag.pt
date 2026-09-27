@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+data
+*.db
+.env*
+apps/agent/bin
+apps/agent/dist
+apps/agent/config.yaml
+apps/helper/bin
+apps/helper/dist
+apps/helper/config.yaml
+**/.turbo

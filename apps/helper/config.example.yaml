@@ -1,0 +1,16 @@
+# Watchdog helper. Does not enroll, store device keys, or call the fleet API.
+# Windows service name: PCManagerAgent
+# Linux systemd unit:   pc-manager-agent
+agent_service_name: PCManagerAgent
+status_port: 17890
+backoff_sec: 30
+probe_interval_sec: 45
+# fail_threshold: 3
+# max_backoff_sec: 300
+# startup_grace_sec: 60
+# agent_exe: ""
+# update_file is optional; leave empty to skip local-update os.Stat
+# update_file: ""
+# update_sha256: ""
+# update_signature: ""        # HMAC-SHA256(update_signing_secret, sha256hex)
+# update_signing_secret: ""   # required to apply a local update; sidecar hashes are ignored

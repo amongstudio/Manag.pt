@@ -1,0 +1,15 @@
+[Unit]
+Description=Mnag.pt Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pc-manager-agent
+ExecStart=/opt/pc-manager-agent/pc-manager-agent run
+Restart=always
+RestartSec=5
+Environment=PC_MANAGER_CONFIG=/opt/pc-manager-agent/config.yaml
+
+[Install]
+WantedBy=multi-user.target

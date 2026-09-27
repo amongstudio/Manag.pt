@@ -1,0 +1,254 @@
+openapi: 3.1.0
+info:
+  title: Mnag.pt API
+  version: 3.3.0
+  contact:
+    name: Masria Code
+    email: Contact@Mnag.pt.com
+    url: https://Mnag.pt
+servers:
+  - url: /api/v1
+paths:
+  /agent/register:
+    post:
+      summary: Enroll a device with ENROLLMENT_SECRET. Same hostname+platform without a matching deviceKey returns 409 device_exists instead of a second row.
+  /agent/ws-challenge:
+    post:
+      summary: Issue a single-use HMAC nonce for agent-ws hello (device auth headers). Connect with ?nonce= and prove HMAC-SHA256(deviceKey, nonce) in hello.keyProof.
+  /agent/heartbeat:
+    post:
+      summary: Presence ping (lastSeen/status only). cpu/ram/disk/extras are ignored; no Stat rows. Optional lanAddrs/lanPort stored on Device. Returns serverTime, watch, agentConfig
+  /agent/commands:
+    get:
+      summary: Long-poll pending commands (fallback only; skipped while agent-ws is connected)
+  /agent/command-result:
+    post:
+      summary: Report command outcome (resultId UUID; duplicate is a no-op; status may be running for progress)
+  /agent/screenshot:
+    post:
+      summary: Upload JPEG screenshot (multipart)
+  /agent/logs:
+    post:
+      summary: Batch device logs
+  /agent/files:
+    get:
+      summary: Download a staged file for this device
+    post:
+      summary: Upload a file from the device
+  /agent/files/transfers:
+    post:
+      summary: Init or resume an agent upload transfer (remotePath, size)
+  /agent/files/transfers/{id}:
+    get:
+      summary: Transfer offset, size, and status for resume
+  /agent/update:
+    get:
+      summary: Latest compatible binary metadata + SHA256
+  /agent/download-update:
+    get:
+      summary: Stream a signed time-limited update binary
+  /admin/meta:
+    get:
+      summary: Public URL, ICE servers, TURN hint, maxUploadBytes (requires OPERATOR_TOKEN when set)
+  /admin/overview:
+    get:
+      summary: Fleet counts (online/offline), pendingAlerts (outbound), recent activity, recent alerts (channel=socket). No avgCpu/series.
+  /admin/devices:
+    get:
+      summary: List devices
+  /admin/devices/{id}:
+    get:
+      summary: Device detail (screenshots, last 40 commands/files, lanAddrs/lanPort, lanPeers, latestSuccessful)
+      description: |
+        `device.lanAddrs` is a parsed string array (RFC1918 / IPv6 ULA from hello/heartbeat).
+        `lanPeers` lists other devices with `likely` when they share a /24 or public `ip`.
+        `latestSuccessful` is `{ get_services, get_registry, get_adapters, get_ports, get_firewall, get_event_log, get_windows_update, get_admin_center }` from dedicated last-success queries (not the last-40 command window).
+    delete:
+      summary: Remove the device and related stats, logs, commands, screenshots, and plugin grants
+  /admin/devices/{id}/peer-copy:
+    post:
+      summary: Operator-ticketed file copy from this device to another online agent
+      description: |
+        Body `{ destDeviceId, srcPath, destPath }`. Signs an HMAC ticket (UPDATE_SIGNING_SECRET, peer-copy-v1)
+        and queues `peer_listen` on dest plus `peer_offer` on source. LAN TLS first; API upload/download fallback.
+        Agents do not accept plugin blobs from peers. Allowlisted mesh commands use the same executor.
+        Errors same_device, dest_not_found, src_offline, dest_offline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destDeviceId, srcPath, destPath]
+              properties:
+                destDeviceId: { type: string }
+                srcPath: { type: string }
+                destPath: { type: string }
+      responses:
+        "200":
+          description: copyId and queued command ids
+        "400":
+          description: invalid_body or same_device
+        "404":
+          description: source or dest not found
+        "409":
+          description: src_offline or dest_offline
+  /admin/devices/{id}/commands:
+    delete:
+      summary: Clear completed command history (optional ids or all; pending/running kept unless includeActive)
+  /admin/devices/{id}/files:
+    post:
+      summary: Stage an operator file for the device to download
+  /admin/devices/{id}/reset-enrollment:
+    post:
+      summary: Clear enrollment key so the next enroll without deviceKey reclaims this device
+  /admin/commands:
+    get:
+      summary: List commands (deviceId, status, cursor). Seed file listings from latest get_files/search_files.
+    post:
+      summary: Queue single or bulk commands (services, registry, and network/firewall types included)
+      description: |
+        Body `{ deviceIds, type, payload }`. Network commands (Windows-only on the agent):
+        `get_adapters` `{}`, `get_ports` `{ listenOnly? }`, `get_firewall` `{ query? }`,
+        `set_firewall_rule` `{ name, direction?, action?, enabled?, protocol?, localPorts?, ... }`,
+        `delete_firewall_rule` `{ name }`. The last two are destructive and confirm in the UI.
+        Native Windows reads: `get_event_log` `{ log?, newest?, level? }` (EvtQuery),
+        `get_windows_update` `{ online? }` (WUAPI IUpdateSearcher, read-only),
+        `get_admin_center` `{}` (ServerManagementGateway status).
+        `start_quick_assist` `{ app?: quickassist|msra }` is destructive: it starts Quick Assist or msra
+        in the console session (CreateProcessAsUser) and toasts; it never launches MMC from Session 0.
+        Agents never accept a payload that disables Windows Firewall globally.
+  /admin/commands/{id}:
+    get:
+      summary: Fetch one command (file explorer HTTP poll fallback)
+  /admin/commands/{id}/cancel:
+    post:
+      summary: Cancel a pending command
+  /admin/commands/{id}/retry:
+    post:
+      summary: Clone a failed or cancelled command as pending
+  /admin/command-templates:
+    get:
+      summary: Operator-saved command templates (builtins live in shared COMMAND_TEMPLATES)
+    post:
+      summary: Save a command template
+  /admin/command-templates/{id}:
+    delete:
+      summary: Delete a saved command template
+  /admin/screenshots/{id}:
+    delete:
+      summary: Delete a screenshot and its JPEG file
+  /admin/screenshots/{id}/file:
+    get:
+      summary: Screenshot JPEG bytes
+  /admin/files/{id}/download:
+    get:
+      summary: Download a staged transfer file
+  /admin/devices/{id}/screenshots:
+    get:
+      summary: Paginated screenshots (cursor, limit)
+  /admin/devices/{id}/chats:
+    get:
+      summary: List copilot chat threads for a device (last 50, updatedAt desc)
+      responses:
+        "200":
+          description: `{ threads: [{ id, title, createdAt, updatedAt }] }`
+        "404":
+          description: device not_found
+    post:
+      summary: Create a copilot chat thread
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 120 }
+      responses:
+        "200":
+          description: `{ thread, messages: [] }`
+  /admin/devices/{id}/chats/{threadId}:
+    get:
+      summary: Thread plus messages (user, assistant, tool). Tool rows link commandId when a command was queued.
+  /admin/devices/{id}/chats/{threadId}/messages:
+    post:
+      summary: Send an operator message. Streams tokens on Socket.io chat_delta. Tools are existing command types only; destructive tools wait for confirm.
+      description: |
+        Body `{ content }` (max 8000). OpenAI-compatible Chat Completions using settings.llm.
+        Tools: get_processes, get_files, get_services, get_registry, get_adapters, get_ports, get_firewall,
+        get_event_log, get_windows_update, get_admin_center, run_script, run_plugin (granted only),
+        preview_file, search_files. run_plugin waits for POST .../confirm. Errors llm_not_configured, busy, rate_limited, pending_confirm.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 8000 }
+  /admin/devices/{id}/chats/{threadId}/confirm:
+    post:
+      summary: Confirm or decline a pending destructive copilot tool batch (toolCallId, confirmed)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [toolCallId, confirmed]
+              properties:
+                toolCallId: { type: string }
+                confirmed: { type: boolean }
+  /admin/settings:
+    get:
+      summary: App settings including llm.baseUrl/apiKey/model (OpenAI-compatible) and agent heartbeat fields
+      description: |
+        `llm.baseUrl` is an http(s) root (often ending /v1) or a full …/chat/completions URL (Azure).
+        Empty baseUrl disables device Chat. `llm.apiKey` is redacted on GET. CPU/RAM/disk thresholds stay in JSON but do not fire alerts.
+    put:
+      summary: Patch settings (telegram, discord, smtp, thresholds, retention, agent, llm). Secret fields with • keep the stored value.
+  /admin/plugins/templates:
+    get:
+      summary: Plugin starter catalog (inventory, process_snapshot, sandbox_disk, plus Windows starters; prefer native get_event_log over system_event_log)
+  /admin/plugins/from-template:
+    post:
+      summary: Create a plugin blob from a starter (templateId, runtime python|go_source)
+  /admin/plugins:
+    get:
+      summary: List installed plugins
+    post:
+      summary: Upload a plugin blob (multipart metadata + file)
+  /admin/plugins/{id}:
+    get:
+      summary: Plugin metadata and grants
+    delete:
+      summary: Delete plugin blob and grants
+  /admin/plugins/{id}/grants:
+    put:
+      summary: Replace device grants ("*" grants every current and future device without storing a Device FK)
+  /admin/builder/packs:
+    get:
+      summary: List stamp packs
+    post:
+      summary: Create a config+installer zip (copies AgentUpdate binary when present)
+  /admin/builder/compile:
+    post:
+      summary: Optional Docker compile (disabled unless ENABLE_AGENT_COMPILE=1)
+    get:
+      summary: Latest compile job (404 if none)
+  /admin/builder/compile/{id}:
+    get:
+      summary: Compile job by id (id=latest for the most recent)
+  /admin/builder/packs/{id}:
+    delete:
+      summary: Delete a stamp pack
+  /builder/download:
+    get:
+      summary: Signed time-limited stamp pack zip (expires in 10 minutes)
+  /agent/plugins/{id}:
+    get:
+      summary: Plugin metadata for a granted device
+  /agent/plugins/{id}/blob:
+    get:
+      summary: Download plugin blob (device auth + grant)

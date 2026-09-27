@@ -1,0 +1,35 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESS} {
+  encode gzip zstd
+
+  @websocket {
+    path /ws /ws/* /agent-ws /agent-ws/*
+  }
+  handle @websocket {
+    reverse_proxy api:4000
+  }
+
+  handle /api/* {
+    reverse_proxy api:4000
+  }
+
+  handle {
+    reverse_proxy web:3000
+  }
+
+  request_body {
+    max_size 100MB
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self' data:"
+    X-Frame-Options DENY
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@workspace/shared",
+  "version": "3.3.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "compiled": "./dist/index.js",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "tsx --test src/schemas.test.ts src/compile.test.ts src/file-listing.test.ts src/win-admin.test.ts src/win-native.test.ts src/win-smb.test.ts src/lan.test.ts src/mesh.test.ts src/win-cred.test.ts"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@workspace/eslint-config": "workspace:*",
+    "@workspace/typescript-config": "workspace:*",
+    "eslint": "^9",
+    "tsx": "^4.20.5",
+    "typescript": "^5"
+  }
+}

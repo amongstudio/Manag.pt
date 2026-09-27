@@ -1,0 +1,291 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Device {
+  id                String   @id
+  hostname          String
+  platform          String
+  arch              String
+  agentVersion      String
+  ip                String?
+  mac               String?
+  lanAddrs          String?
+  lanPort           Int?
+  enrollmentKeyHash String
+  status            String   @default("offline")
+  lastSeen          DateTime @default(now())
+  labels            String?
+  watchUntil        DateTime?
+  e2ePub            String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  stats         Stat[]
+  logs          Log[]
+  commands      Command[]
+  screenshots   Screenshot[]
+  files         FileInfo[]
+  notifications Notification[]
+  pluginGrants  PluginDeviceGrant[]
+  chats         ChatThread[]
+  credentials   DeviceCredential[]
+
+  @@index([status, lastSeen])
+  @@index([lastSeen])
+  @@index([hostname, platform])
+}
+
+model DeviceCredential {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  credKey     String
+  source      String
+  kind        String   @default("generic")
+  target      String
+  username    String   @default("")
+  persist     String?
+  comment     String?
+  browser     String?
+  profile     String?
+  lastWritten String?
+  secretEnc   String   @default("")
+  backedUpAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([deviceId, credKey])
+  @@index([deviceId, source])
+}
+
+model Stat {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  timestamp DateTime @default(now())
+  cpu       Float
+  ram       Float
+  disk      Float
+  gpu       Float?
+  temp      Float?
+  netUp     Float?
+  netDown   Float?
+  processes String
+  extras    String?
+
+  @@index([deviceId, timestamp])
+  @@index([timestamp])
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  timestamp DateTime @default(now())
+  level     String
+  source    String?
+  message   String
+
+  @@index([deviceId, timestamp])
+  @@index([timestamp])
+}
+
+model Command {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  type      String
+  payload   String
+  status    String   @default("pending")
+  result    String?
+  resultId  String?  @unique
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([deviceId, status])
+  @@index([deviceId, createdAt])
+  @@index([status, updatedAt])
+  @@index([createdAt])
+}
+
+model Screenshot {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  path      String
+  size      Int
+  createdAt DateTime @default(now())
+
+  @@index([deviceId, createdAt])
+  @@index([createdAt])
+}
+
+model FileInfo {
+  id         String   @id @default(cuid())
+  deviceId   String
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  direction  String
+  localPath  String
+  remotePath String
+  size       Int
+  offset     Int      @default(0)
+  status     String
+  createdAt  DateTime @default(now())
+
+  @@index([deviceId, createdAt])
+  @@index([deviceId, direction, status])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  deviceId  String?
+  device    Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  channel   String
+  type      String
+  title     String
+  body      String
+  status    String    @default("pending")
+  attempts  Int       @default(0)
+  lastError String?
+  leasedAt  DateTime?
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  @@index([status, createdAt])
+  @@index([deviceId, type, createdAt])
+}
+
+model AgentUpdate {
+  id        String   @id @default(cuid())
+  kind      String   @default("agent")
+  version   String
+  platform  String
+  arch      String
+  notes     String?
+  checksum  String
+  path      String
+  size      Int
+  createdAt DateTime @default(now())
+
+  @@unique([kind, version, platform, arch])
+  @@index([kind, platform, arch, createdAt])
+}
+
+model Setting {
+  key   String @id
+  value String
+}
+
+model Plugin {
+  id             String   @id @default(cuid())
+  name           String
+  version        String
+  runtime        String
+  platform       String?
+  arch           String?
+  sha256         String
+  path           String
+  timeoutSec     Int      @default(60)
+  networkAllowed Boolean  @default(false)
+  allDevices     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  grants PluginDeviceGrant[]
+}
+
+model PluginDeviceGrant {
+  pluginId String
+  deviceId String
+  plugin   Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  device   Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([pluginId, deviceId])
+}
+
+model CommandTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  type        String
+  payloadJson String
+  createdAt   DateTime @default(now())
+}
+
+model AgentBuild {
+  id        String   @id @default(cuid())
+  platform  String
+  arch      String
+  createdAt DateTime @default(now())
+  path      String
+  notes     String?
+}
+
+model ChatThread {
+  id        String        @id @default(cuid())
+  deviceId  String
+  device    Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  title     String        @default("New chat")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+
+  @@index([deviceId, updatedAt])
+}
+
+model ChatMessage {
+  id         String     @id @default(cuid())
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role       String
+  content    String
+  toolName   String?
+  toolCallId String?
+  toolCalls  String?
+  commandId  String?
+  createdAt  DateTime   @default(now())
+
+  @@index([threadId, createdAt])
+  @@index([commandId])
+}
+
+model OperatorAccount {
+  id           String            @id @default(cuid())
+  username     String            @unique
+  passwordHash String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  sessions     OperatorSession[]
+}
+
+model OperatorSession {
+  id        String          @id @default(cuid())
+  accountId String
+  account   OperatorAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tokenHash String          @unique
+  expiresAt DateTime
+  createdAt DateTime        @default(now())
+  lastSeen  DateTime        @default(now())
+
+  @@index([expiresAt])
+}
+
+model RemoteSession {
+  id          String   @id
+  deviceId    String
+  kind        String
+  operatorPub String?
+  agentPub    String?
+  meta        String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([deviceId, kind])
+  @@index([expiresAt])
+}

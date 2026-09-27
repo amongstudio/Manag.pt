@@ -1,0 +1,39 @@
+{
+  "name": "api",
+  "version": "3.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --include ./src src/index.ts",
+    "start": "node --conditions=compiled dist/index.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "tsx --test src/enroll.test.ts src/lib.test.ts src/plugin-templates.test.ts src/compile.test.ts src/shell-relay.test.ts src/command-policy.test.ts src/stamp-install.test.ts src/chat.test.ts src/mesh-ca.test.ts src/operator-password.test.ts src/vault.test.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.1",
+    "@fastify/multipart": "^9.0.3",
+    "@fastify/rate-limit": "^10.2.2",
+    "@fastify/websocket": "^11.3.0",
+    "@workspace/db": "workspace:*",
+    "@workspace/shared": "workspace:*",
+    "dotenv": "^16.6.1",
+    "fastify": "^5.4.0",
+    "fzstd": "^0.1.1",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.5",
+    "socket.io": "^4.8.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/nodemailer": "^6.4.17",
+    "@types/ws": "^8.18.1",
+    "@workspace/eslint-config": "workspace:*",
+    "@workspace/typescript-config": "workspace:*",
+    "eslint": "^9",
+    "tsx": "^4.20.5",
+    "typescript": "^5"
+  }
+}
