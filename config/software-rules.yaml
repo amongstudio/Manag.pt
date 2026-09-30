@@ -1,0 +1,9 @@
+# Local outdated-package rules. Compared to SoftwareInstallation rows.
+# No network lookup. Versions below `below` become posture findings.
+rules:
+  - name: curl
+    below: "8.0.0"
+    severity: high
+    title: curl older than 8.0.0
+    remediation: Upgrade curl from the vendor package repository.
+    remediationType: upgrade

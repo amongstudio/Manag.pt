@@ -371,6 +371,19 @@ export const commandPayloadSchemas = {
     until: z.string().max(40).optional(),
   }),
   collect_inventory: z.object({}),
+  network_scan: z.object({
+    target: z.string().min(1).max(256),
+    scanId: z.string().min(1).max(128).optional(),
+    maxRate: z.number().int().min(1).max(10_000).optional(),
+    timeoutMinutes: z.number().int().min(1).max(120).optional(),
+    enableVulners: z.boolean().optional(),
+  }),
+  nuclei_scan: z.object({
+    target: z.string().min(1).max(512),
+    scanId: z.string().min(1).max(128).optional(),
+    timeoutMinutes: z.number().int().min(1).max(120).optional(),
+  }),
+  host_posture: z.object({ scanId: z.string().min(1).max(128).optional() }),
   install_windows_update: z.object({
     kbs: z.array(z.string().regex(/^KB\d{4,10}$/)).min(1).max(40),
     reboot: z.enum(["never", "if_required", "scheduled"]).optional(),

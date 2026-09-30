@@ -49,6 +49,8 @@ export const MESH_NEVER_COMMANDS = [
   "restore_credentials",
   "set_bitlocker",
   "install_windows_update",
+  "network_scan",
+  "nuclei_scan",
 ] as const satisfies readonly CommandType[]
 
 const NEVER = new Set<string>(MESH_NEVER_COMMANDS)

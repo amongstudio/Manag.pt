@@ -22,6 +22,7 @@ import (
 	"github.com/pc-manager/agent/internal/peerfile"
 	"github.com/pc-manager/agent/internal/plugin"
 	"github.com/pc-manager/agent/internal/procutil"
+	"github.com/pc-manager/agent/internal/scan"
 	"github.com/pc-manager/agent/internal/screenshot"
 	"github.com/pc-manager/agent/internal/smbwin"
 	"github.com/pc-manager/agent/internal/svcctl"
@@ -66,7 +67,7 @@ func Classify(typ string) Class {
 	switch typ {
 	case "restart", "shutdown", "kill_switch", "update_agent":
 		return ClassExclusive
-	case "install_app", "uninstall_app", "run_script", "run_plugin", "upload_file", "download_file", "search_files", "copy_file", "get_services", "start_service", "stop_service", "restart_service", "get_adapters", "get_ports", "get_firewall", "set_firewall_rule", "delete_firewall_rule", "peer_listen", "peer_offer", "get_event_log", "get_windows_update", "install_windows_update", "start_quick_assist", "get_tasks", "set_task_enabled", "get_defender", "set_defender", "start_defender_scan", "update_defender", "defender_action", "cancel_defender_scan", "get_bitlocker", "set_bitlocker", "get_capabilities", "install_capability", "get_smb", "smb_list", "smb_connect", "smb_disconnect", "get_credentials", "set_credential", "delete_credential", "generate_credential", "backup_credentials", "restore_credentials", "collect_inventory":
+	case "install_app", "uninstall_app", "run_script", "run_plugin", "upload_file", "download_file", "search_files", "copy_file", "get_services", "start_service", "stop_service", "restart_service", "get_adapters", "get_ports", "get_firewall", "set_firewall_rule", "delete_firewall_rule", "peer_listen", "peer_offer", "get_event_log", "get_windows_update", "install_windows_update", "start_quick_assist", "get_tasks", "set_task_enabled", "get_defender", "set_defender", "start_defender_scan", "update_defender", "defender_action", "cancel_defender_scan", "get_bitlocker", "set_bitlocker", "get_capabilities", "install_capability", "get_smb", "smb_list", "smb_connect", "smb_disconnect", "get_credentials", "set_credential", "delete_credential", "generate_credential", "backup_credentials", "restore_credentials", "collect_inventory", "network_scan", "nuclei_scan", "host_posture":
 		return ClassLong
 	default:
 		return ClassFast
@@ -364,6 +365,12 @@ func Handle(typ string, payload json.RawMessage, deps Deps) (any, error) {
 	case "collect_inventory":
 		reportProgress(deps, 0)
 		return inventory.Collect(), nil
+	case "network_scan":
+		return runNetworkScan(body)
+	case "nuclei_scan":
+		return runNucleiScan(body)
+	case "host_posture":
+		return scan.HostPosture(), nil
 	case "start_quick_assist":
 		req, err := winops.ParseAssist(payload)
 		if err != nil {
@@ -845,6 +852,69 @@ func scriptArgs(language, script string) (string, []string, error) {
 	default:
 		return "", nil, errors.New("unsupported_language")
 	}
+}
+
+func runNetworkScan(body map[string]any) (any, error) {
+	target, _ := body["target"].(string)
+	scope := scan.LoadScope(scanScopePath())
+	decision := scan.AuthorizeTarget(target, scope)
+	if !decision.OK {
+		return map[string]string{"error": decision.Error}, errors.New(decision.Error)
+	}
+	if !scan.NmapAvailable() {
+		return map[string]string{"error": "nmap_unavailable"}, errors.New("nmap_unavailable")
+	}
+	rate := scope.ScanRateLimit
+	if n, ok := body["maxRate"].(float64); ok && int(n) > 0 && int(n) < rate {
+		rate = int(n)
+	}
+	minutes := scope.ScanTimeoutMinutes
+	if n, ok := body["timeoutMinutes"].(float64); ok && int(n) > 0 && int(n) < minutes {
+		minutes = int(n)
+	}
+	vulners := false
+	if body["enableVulners"] == true && scope.EnableVulners {
+		vulners = true
+	}
+	return scan.RunNmap(context.Background(), decision.Target, rate, time.Duration(minutes)*time.Minute, vulners)
+}
+
+func runNucleiScan(body map[string]any) (any, error) {
+	target, _ := body["target"].(string)
+	scope := scan.LoadScope(scanScopePath())
+	host := target
+	if strings.Contains(target, "://") {
+		host = target
+		if i := strings.Index(host, "://"); i >= 0 {
+			host = host[i+3:]
+		}
+		host = strings.Trim(host, "[]")
+		if slash := strings.IndexAny(host, "/:"); slash >= 0 {
+			host = host[:slash]
+		}
+	}
+	decision := scan.AuthorizeTarget(host, scope)
+	if !decision.OK {
+		return map[string]string{"error": decision.Error}, errors.New(decision.Error)
+	}
+	if !scan.NucleiAvailable() {
+		return map[string]string{"error": "nuclei_unavailable"}, errors.New("nuclei_unavailable")
+	}
+	minutes := scope.ScanTimeoutMinutes
+	findings, err := scan.RunNuclei(context.Background(), target, time.Duration(minutes)*time.Minute)
+	if err != nil {
+		return map[string]string{"error": err.Error()}, err
+	}
+	return map[string]any{"findings": findings}, nil
+}
+
+func scanScopePath() string {
+	for _, candidate := range []string{"config/scan-scope.yaml", "../../config/scan-scope.yaml"} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return "config/scan-scope.yaml"
 }
 
 func lookPython() (string, error) {
