@@ -141,6 +141,7 @@ export const env = {
   cors,
   trustProxy: resolveTrustProxy(),
   updateSigningSecret: resolveUpdateSigningSecret(nodeEnv),
+  credentialsKey: (process.env.CREDENTIALS_KEY ?? "").trim(),
   rateLimitPerMinute: num("RATE_LIMIT_PER_MINUTE", 120),
   wsConnectPerMinute: num("WS_CONNECT_PER_MINUTE", 30),
   ipAllowlist: csv("IP_ALLOWLIST"),

@@ -31,20 +31,25 @@ var defaultCommands = []string{
 	"get_bitlocker",
 	"get_capabilities",
 	"get_smb",
+	"collect_inventory",
 }
 
 var neverCommands = map[string]struct{}{
-	"run_plugin":   {},
-	"peer_listen":  {},
-	"peer_offer":   {},
-	"update_agent": {},
-	"get_credentials": {},
-	"backup_credentials": {},
-	"set_credential": {},
-	"delete_credential":     {},
-	"generate_credential":   {},
-	"restore_credentials":   {},
-	"set_bitlocker":         {},
+	"run_plugin":             {},
+	"peer_listen":            {},
+	"peer_offer":             {},
+	"update_agent":           {},
+	"get_credentials":        {},
+	"backup_credentials":     {},
+	"set_credential":         {},
+	"delete_credential":      {},
+	"generate_credential":    {},
+	"restore_credentials":    {},
+	"set_bitlocker":          {},
+	"install_windows_update": {},
+	"network_scan":           {},
+	"nuclei_scan":            {},
+	"apply_config":           {},
 }
 
 func DefaultPolicy() Policy {

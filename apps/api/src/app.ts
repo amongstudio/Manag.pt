@@ -14,6 +14,10 @@ import { registerCredentialRoutes } from "./routes-credentials.js"
 import { registerChatRoutes } from "./routes-chat.js"
 import { registerPluginRoutes } from "./routes-plugins.js"
 import { registerBuilderRoutes } from "./routes-builder.js"
+import { registerPlatformRoutes } from "./routes-platform.js"
+import { registerScanRoutes } from "./routes-scans.js"
+import { registerConfigRoutes } from "./routes-config.js"
+import { primeOperatorConfig } from "./operator-config.js"
 import { startJobs } from "./jobs.js"
 import { getSettings } from "./settings.js"
 import { clientIp, httpRateLimitBucket, ipAllowed } from "./lib.js"
@@ -30,6 +34,9 @@ function isHealthz(url: string | undefined): boolean {
 
 async function main() {
   await getSettings()
+  await primeOperatorConfig().catch((error) => {
+    console.error("config seed failed", error instanceof Error ? error.message : error)
+  })
   const restored = await hydrateRemoteSessions()
   for (const session of restored) restoreE2ESession(session)
 
@@ -76,6 +83,9 @@ async function main() {
   await registerChatRoutes(app)
   await registerPluginRoutes(app)
   await registerBuilderRoutes(app)
+  await registerPlatformRoutes(app)
+  await registerScanRoutes(app)
+  await registerConfigRoutes(app)
   startJobs(app)
 
   await app.listen({ port: env.port, host: env.host })

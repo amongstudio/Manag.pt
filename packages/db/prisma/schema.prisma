@@ -35,6 +35,31 @@ model Device {
   pluginGrants  PluginDeviceGrant[]
   chats         ChatThread[]
   credentials   DeviceCredential[]
+  scriptRuns    ScriptRun[]
+  schedules     ScriptSchedule[]
+  metrics       MetricSample[]
+  hardware      HardwareAsset?
+  operatingSystems OperatingSystem[]
+  cpus          Cpu[]
+  memoryModules MemoryModule[]
+  disks         Disk[]
+  volumes       Volume[]
+  gpus          Gpu[]
+  adapters      NetworkAdapter[]
+  monitors      Monitor[]
+  printers      Printer[]
+  usbDevices    UsbDevice[]
+  softwareInstalls SoftwareInstallation[]
+  windowsUpdates WindowsUpdate[]
+  drivers       Driver[]
+  certificates  Certificate[]
+  services      Service[]
+  processSnapshots ProcessSnapshot[]
+  startupItems  StartupItem[]
+  browsers      Browser[]
+  userProfiles  UserProfile[]
+  scans         Scan[]
+  findings      Finding[]
 
   @@index([status, lastSeen])
   @@index([lastSeen])
@@ -274,6 +299,442 @@ model OperatorSession {
   lastSeen  DateTime        @default(now())
 
   @@index([expiresAt])
+}
+
+model Script {
+  id             String   @id @default(cuid())
+  name           String
+  description    String   @default("")
+  language       String
+  content        String
+  parameters     String   @default("[]")
+  timeoutSeconds Int      @default(60)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  runs      ScriptRun[]
+  schedules ScriptSchedule[]
+  findings  Finding[]
+
+  @@index([name])
+}
+
+model ScriptRun {
+  id         String    @id @default(cuid())
+  deviceId   String
+  device     Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  scriptId   String?
+  script     Script?   @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+  language   String
+  content    String
+  status     String    @default("queued")
+  exitCode   Int?
+  stdout     String    @default("")
+  stderr     String    @default("")
+  startedAt  DateTime?
+  finishedAt DateTime?
+  trigger    String
+  commandId  String?
+  createdAt  DateTime  @default(now())
+
+  @@index([deviceId, createdAt])
+  @@index([scriptId, createdAt])
+  @@index([commandId])
+}
+
+model ScriptSchedule {
+  id          String    @id @default(cuid())
+  scriptId    String
+  script      Script    @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  deviceId    String?
+  device      Device?   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  cron        String
+  enabled     Boolean   @default(true)
+  lastFiredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([enabled, scriptId])
+}
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  at       DateTime @default(now())
+  actor    String
+  action   String
+  deviceId String?
+  detail   String   @default("{}")
+
+  @@index([at])
+  @@index([deviceId, at])
+  @@index([action, at])
+}
+
+model MetricSample {
+  id        String   @id @default(cuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name      String
+  labels    String   @default("{}")
+  value     Float
+  sampledAt DateTime @default(now())
+
+  @@index([deviceId, name, sampledAt])
+  @@index([sampledAt])
+}
+
+model AlertState {
+  id           String    @id @default(cuid())
+  ruleId       String
+  deviceId     String
+  pendingSince DateTime?
+  lastFiredAt  DateTime?
+
+  @@unique([ruleId, deviceId])
+}
+
+model HardwareAsset {
+  deviceId     String   @id
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  manufacturer String   @default("")
+  model        String   @default("")
+  serial       String   @default("")
+  chassis      String   @default("")
+  collectedAt  DateTime @default(now())
+}
+
+model OperatingSystem {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String
+  version     String   @default("")
+  build       String   @default("")
+  arch        String   @default("")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Cpu {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  cores       Int      @default(0)
+  threads     Int      @default(0)
+  mhz         Float    @default(0)
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model MemoryModule {
+  id           String   @id @default(cuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  bank         String   @default("")
+  sizeBytes    BigInt   @default(0)
+  speedMhz     Int      @default(0)
+  manufacturer String   @default("")
+  serial       String   @default("")
+  collectedAt  DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Disk {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  model       String   @default("")
+  serial      String   @default("")
+  sizeBytes   BigInt   @default(0)
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Volume {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  mount       String   @default("")
+  fs          String   @default("")
+  sizeBytes   BigInt   @default(0)
+  freeBytes   BigInt   @default(0)
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Gpu {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  driver      String   @default("")
+  memoryBytes BigInt   @default(0)
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model NetworkAdapter {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  mac         String   @default("")
+  ips         String   @default("[]")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Monitor {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  width       Int      @default(0)
+  height      Int      @default(0)
+  primary     Boolean  @default(false)
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Printer {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  driver      String   @default("")
+  port        String   @default("")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model UsbDevice {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  vendorId    String   @default("")
+  productId   String   @default("")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Software {
+  id        String   @id @default(cuid())
+  name      String
+  version   String   @default("")
+  publisher String   @default("")
+
+  installations SoftwareInstallation[]
+
+  @@unique([name, version, publisher])
+  @@index([name, version])
+}
+
+model SoftwareInstallation {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  softwareId  String
+  software    Software @relation(fields: [softwareId], references: [id], onDelete: Cascade)
+  source      String   @default("")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+  @@index([softwareId, collectedAt])
+}
+
+model WindowsUpdate {
+  id             String   @id @default(cuid())
+  deviceId       String
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  kb             String   @default("")
+  title          String   @default("")
+  severity       String   @default("")
+  sizeBytes      Int      @default(0)
+  approval       String   @default("pending")
+  rebootPolicy   String   @default("never")
+  windowStart    String   @default("")
+  windowEnd      String   @default("")
+  lastError      String   @default("")
+  rebootRequired Boolean  @default(false)
+  collectedAt    DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([deviceId, kb, title])
+  @@index([deviceId, approval])
+}
+
+model Driver {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  version     String   @default("")
+  provider    String   @default("")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Certificate {
+  id          String    @id @default(cuid())
+  deviceId    String
+  device      Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  subject     String    @default("")
+  issuer      String    @default("")
+  thumbprint  String    @default("")
+  store       String    @default("")
+  notAfter    DateTime?
+  collectedAt DateTime  @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String
+  displayName String   @default("")
+  state       String   @default("")
+  startType   String   @default("")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, name])
+}
+
+model ProcessSnapshot {
+  id          String    @id @default(cuid())
+  deviceId    String
+  device      Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  collectedAt DateTime  @default(now())
+  processes   Process[]
+
+  @@index([deviceId, collectedAt])
+}
+
+model Process {
+  id         String          @id @default(cuid())
+  snapshotId String
+  snapshot   ProcessSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  pid        Int
+  name       String          @default("")
+  cpu        Float           @default(0)
+  ram        Float           @default(0)
+
+  @@index([snapshotId])
+}
+
+model StartupItem {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  command     String   @default("")
+  location    String   @default("")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Browser {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String   @default("")
+  version     String   @default("")
+  path        String   @default("")
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model UserProfile {
+  id          String   @id @default(cuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String
+  sid         String   @default("")
+  local       Boolean  @default(true)
+  disabled    Boolean  @default(false)
+  collectedAt DateTime @default(now())
+
+  @@index([deviceId, collectedAt])
+}
+
+model Scan {
+  id         String    @id @default(cuid())
+  deviceId   String?
+  device     Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  kind       String
+  target     String
+  status     String    @default("pending")
+  commandId  String?
+  summary    String    @default("")
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  findings   Finding[]
+
+  @@index([createdAt])
+  @@index([deviceId, createdAt])
+  @@index([status])
+}
+
+model Finding {
+  id              String    @id @default(cuid())
+  scanId          String?
+  scan            Scan?     @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  deviceId        String?
+  device          Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  hostIp          String    @default("")
+  hostHostname    String    @default("")
+  hostOs          String    @default("")
+  source          String
+  category        String
+  severity        String
+  title           String
+  description     String    @default("")
+  cveId           String    @default("")
+  cvssScore       Float?
+  evidence        String    @default("")
+  remediation     String    @default("")
+  remediationType String    @default("manual")
+  scriptId        String?
+  script          Script?   @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+  status          String    @default("open")
+  acceptReason    String    @default("")
+  firstSeen       DateTime  @default(now())
+  lastSeen        DateTime  @default(now())
+
+  @@unique([hostIp, source, category, title, cveId])
+  @@index([deviceId])
+  @@index([severity])
+  @@index([cveId])
+  @@index([status])
+  @@index([scanId])
+}
+
+model CveCache {
+  id        String   @id @default(cuid())
+  product   String
+  version   String
+  payload   String
+  fetchedAt DateTime @default(now())
+
+  @@unique([product, version])
 }
 
 model RemoteSession {

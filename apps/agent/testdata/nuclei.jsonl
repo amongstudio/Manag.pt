@@ -1,0 +1,3 @@
+{"template-id":"tls-version","info":{"name":"Weak TLS","severity":"medium","description":"Server offers an old TLS version.","tags":["ssl","tls"],"remediation":"Disable TLS 1.0."},"matched-at":"https://127.0.0.1:443","host":"127.0.0.1","matcher-name":"tls10"}
+{"template-id":"example-dos","info":{"name":"DoS template","severity":"critical","tags":["dos"]},"matched-at":"http://127.0.0.1","host":"127.0.0.1"}
+{"template-id":"cve-demo","info":{"name":"Example CVE","severity":"high","classification":{"cve-id":["CVE-2024-1000"],"cvss-score":8.1},"tags":["cve"]},"matched-at":"http://127.0.0.1/admin","host":"127.0.0.1"}

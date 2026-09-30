@@ -19,6 +19,7 @@ import { hydrateCommandPayload } from "./vault.js"
 import { COMMAND_POLL_MS, waitForDeviceCommands } from "./command-waiters.js"
 import { deviceFromHeaders } from "./device-auth.js"
 import { env, dataPath } from "./env.js"
+import { normalizeMetrics, storeMetrics } from "./metrics.js"
 import { getTransfer, initUploadTransfer } from "./file-transfer.js"
 import { emitFleet } from "./io-emit.js"
 import {
@@ -218,6 +219,15 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     if (!result.ok) return reply.code(404).send(errorBody("not_found"))
     await afterPeerCommandIngest(app, device, parsed.data)
     return result
+  })
+
+  app.post(`${API_PREFIX}/agent/metrics`, async (req, reply) => {
+    const device = await requireDevice(req, reply)
+    if (!device) return
+    const samples = normalizeMetrics(req.body)
+    if (!samples) return reply.code(400).send(errorBody("invalid_body"))
+    const stored = await storeMetrics(device.id, samples)
+    return { ok: true, stored }
   })
 
   app.post(`${API_PREFIX}/agent/logs`, async (req, reply) => {

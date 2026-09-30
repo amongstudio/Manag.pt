@@ -34,6 +34,7 @@ export const AGENT_WS_TYPE = {
   command_ack: "command_ack",
   command_result: "command_result",
   heartbeat: "heartbeat",
+  metrics: "metrics",
   agent_config: "agent_config",
   screenshot_bin: "screenshot_bin",
   file_chunk: "file_chunk",

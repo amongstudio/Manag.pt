@@ -64,6 +64,7 @@ export function SettingsPage() {
       ...settingsQuery.data.settings,
       agent: { ...DEFAULT_SETTINGS.agent, ...settingsQuery.data.settings.agent },
       telegram: { ...DEFAULT_SETTINGS.telegram, ...settingsQuery.data.settings.telegram },
+      teams: { ...DEFAULT_SETTINGS.teams, ...settingsQuery.data.settings.teams },
       discord: { ...DEFAULT_SETTINGS.discord, ...settingsQuery.data.settings.discord },
       smtp: { ...DEFAULT_SETTINGS.smtp, ...settingsQuery.data.settings.smtp },
       thresholds: { ...DEFAULT_SETTINGS.thresholds, ...settingsQuery.data.settings.thresholds },
@@ -218,6 +219,22 @@ export function SettingsPage() {
                   value={form.discord.webhookUrl}
                   onChange={(e) => updateForm({ ...form, discord: { ...form.discord, webhookUrl: e.target.value } })}
                 />
+              </Field>
+              <Field orientation="horizontal">
+                <FieldLabel>Microsoft Teams</FieldLabel>
+                <Switch
+                  checked={form.teams.enabled}
+                  onCheckedChange={(checked) => updateForm({ ...form, teams: { ...form.teams, enabled: checked } })}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="teams">Teams incoming webhook</FieldLabel>
+                <Input
+                  id="teams"
+                  value={form.teams.webhookUrl}
+                  onChange={(e) => updateForm({ ...form, teams: { ...form.teams, webhookUrl: e.target.value } })}
+                />
+                <FieldDescription>HTTPS incoming webhook. The API posts a MessageCard. The URL is redacted after save.</FieldDescription>
               </Field>
               <Field orientation="horizontal">
                 <FieldLabel>SMTP</FieldLabel>

@@ -1,0 +1,29 @@
+# Metric rules. Samples arrive about once a minute.
+# Webhook and Teams URLs are secrets. Leave them empty in git.
+rules:
+  - id: disk-free-low
+    metric: disk_free_pct
+    comparator: lt
+    threshold: 15
+    forSamples: 2
+    cooldownSec: 1800
+    title: Disk free below 15%
+    notify:
+      telegram: true
+      smtp: true
+  - id: storage-failure
+    title: storage failure
+    forSamples: 2
+    cooldownSec: 1800
+    correlate:
+      - metric: disk_free_pct
+        comparator: lt
+        threshold: 15
+      - metric: service_up
+        comparator: eq
+        threshold: 0
+        labels:
+          name: Spooler
+    notify:
+      telegram: true
+      smtp: true

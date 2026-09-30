@@ -1,11 +1,17 @@
 import {
+  BellIcon,
+  BoxesIcon,
   ComputerIcon,
   FileTextIcon,
   LayoutDashboardIcon,
   MonitorIcon,
+  ShieldIcon,
   PackageIcon,
   PuzzleIcon,
+  ScrollTextIcon,
   SettingsIcon,
+  SlidersHorizontalIcon,
+  BookOpenIcon,
   type LucideIcon,
 } from "lucide-react"
 
@@ -13,10 +19,16 @@ export const APP_NAV: Array<{ href: string; label: string; icon: LucideIcon }> =
   { href: "/", label: "Overview", icon: LayoutDashboardIcon },
   { href: "/devices", label: "Devices", icon: MonitorIcon },
   { href: "/commands", label: "Commands", icon: ComputerIcon },
+  { href: "/scripts", label: "Scripts", icon: ScrollTextIcon },
+  { href: "/alerts", label: "Alerts", icon: BellIcon },
+  { href: "/inventory", label: "Inventory", icon: BoxesIcon },
+  { href: "/security", label: "Security", icon: ShieldIcon },
   { href: "/plugins", label: "Plugins", icon: PuzzleIcon },
   { href: "/builder", label: "Builder", icon: PackageIcon },
   { href: "/logs", label: "Logs", icon: FileTextIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
+  { href: "/configuration", label: "Configuration", icon: SlidersHorizontalIcon },
+  { href: "/docs", label: "Docs", icon: BookOpenIcon },
 ]
 
 export function navLabelForPath(pathname: string): string {

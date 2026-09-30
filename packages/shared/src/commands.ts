@@ -60,6 +60,12 @@ export const COMMAND_TYPES = [
 	"generate_credential",
 	"backup_credentials",
 	"restore_credentials",
+	"collect_inventory",
+	"install_windows_update",
+	"network_scan",
+	"nuclei_scan",
+	"host_posture",
+	"apply_config",
 	"peer_listen",
 	"peer_offer",
 ] as const
@@ -103,6 +109,7 @@ export const DESTRUCTIVE_COMMANDS = new Set<CommandType>([
   "generate_credential",
   "backup_credentials",
   "restore_credentials",
+  "install_windows_update",
 ])
 
 export const COMMAND_STATUS = ["pending", "running", "success", "failed", "cancelled"] as const

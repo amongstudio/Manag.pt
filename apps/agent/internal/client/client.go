@@ -68,15 +68,15 @@ type WatchConfig struct {
 }
 
 type AgentConfig struct {
-	HeartbeatIntervalSec  int      `json:"heartbeatIntervalSec"`
-	IdleHeartbeatSec      int      `json:"idleHeartbeatSec"`
-	WatchedHeartbeatSec   int      `json:"watchedHeartbeatSec"`
-	PollIntervalSec       int      `json:"pollIntervalSec"`
-	ScreenshotIntervalSec *int     `json:"screenshotIntervalSec"`
-	AutoRestartTime       *string  `json:"autoRestartTime"`
-	SandboxRoots          []string `json:"sandboxRoots"`
-	Lightweight           *bool      `json:"lightweight"`
-	MaxUploadBytes        int64      `json:"maxUploadBytes,omitempty"`
+	HeartbeatIntervalSec  int         `json:"heartbeatIntervalSec"`
+	IdleHeartbeatSec      int         `json:"idleHeartbeatSec"`
+	WatchedHeartbeatSec   int         `json:"watchedHeartbeatSec"`
+	PollIntervalSec       int         `json:"pollIntervalSec"`
+	ScreenshotIntervalSec *int        `json:"screenshotIntervalSec"`
+	AutoRestartTime       *string     `json:"autoRestartTime"`
+	SandboxRoots          []string    `json:"sandboxRoots"`
+	Lightweight           *bool       `json:"lightweight"`
+	MaxUploadBytes        int64       `json:"maxUploadBytes,omitempty"`
 	Mesh                  *MeshPolicy `json:"mesh,omitempty"`
 }
 
@@ -419,6 +419,10 @@ func (c *Client) TransferMeta(id string) (*TransferInfo, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+func (c *Client) PostMetrics(payload any) error {
+	return c.doJSON(http.MethodPost, "/api/v1/agent/metrics", payload, nil)
 }
 
 func (c *Client) Heartbeat(payload any) (*HeartbeatResponse, error) {

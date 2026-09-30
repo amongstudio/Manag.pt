@@ -1,0 +1,26 @@
+# Evaluated by the API job loop. Each run writes an AuditLog row.
+# Disk free is also a config/rules.yaml rule so it is not fired twice here.
+automations:
+  - id: restart-stopped-service
+    enabled: true
+    when: service_stopped
+    service: Spooler
+    cooldownSec: 900
+  - id: disk-free-alert
+    enabled: true
+    when: rule
+    ruleId: disk-free-low
+  - id: reenable-defender
+    enabled: true
+    when: defender_disabled
+    cooldownSec: 3600
+  - id: restart-stale-agent
+    enabled: true
+    when: heartbeat_stale
+    staleSec: 600
+    cooldownSec: 21600
+  - id: kill-configured-process
+    enabled: false
+    when: process_present
+    process: notepad.exe
+    cooldownSec: 300

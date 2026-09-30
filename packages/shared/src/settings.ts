@@ -21,6 +21,12 @@ export type AppSettings = {
     notifyCommandFailure: boolean
     notifyKillSwitch: boolean
     notifyHeartbeatMissed: boolean
+    notifyMetricRule: boolean
+    notifyAutomation: boolean
+  }
+  teams: {
+    enabled: boolean
+    webhookUrl: string
   }
   discord: {
     enabled: boolean
@@ -85,6 +91,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     notifyCommandFailure: true,
     notifyKillSwitch: true,
     notifyHeartbeatMissed: true,
+    notifyMetricRule: true,
+    notifyAutomation: true,
+  },
+  teams: {
+    enabled: false,
+    webhookUrl: "",
   },
   discord: {
     enabled: false,
@@ -147,6 +159,10 @@ export function redactSettings(settings: AppSettings): AppSettings {
       ...settings.discord,
       webhookUrl: settings.discord.webhookUrl ? "••••••••" : "",
     },
+    teams: {
+      ...settings.teams,
+      webhookUrl: settings.teams.webhookUrl ? "••••••••" : "",
+    },
     smtp: {
       ...settings.smtp,
       password: settings.smtp.password ? "••••••••" : "",
@@ -190,6 +206,13 @@ export const telegramSettingsSchema = z.strictObject({
   notifyCommandFailure: z.boolean(),
   notifyKillSwitch: z.boolean(),
   notifyHeartbeatMissed: z.boolean(),
+  notifyMetricRule: z.boolean(),
+  notifyAutomation: z.boolean(),
+})
+
+export const teamsSettingsSchema = z.strictObject({
+  enabled: z.boolean(),
+  webhookUrl: secretField(2048, /^https:\/\/\S+$/i, "must be an https URL"),
 })
 
 export const discordSettingsSchema = z.strictObject({
@@ -259,6 +282,7 @@ export const llmSettingsSchema = z.strictObject({
 
 export const appSettingsSchema = z.strictObject({
   telegram: telegramSettingsSchema,
+  teams: teamsSettingsSchema,
   discord: discordSettingsSchema,
   smtp: smtpSettingsSchema,
   thresholds: thresholdSettingsSchema,
@@ -271,6 +295,7 @@ export const appSettingsSchema = z.strictObject({
 /** Deep-partial settings patch: each section optional, each field within optional. */
 export const appSettingsPatchSchema = z.strictObject({
   telegram: telegramSettingsSchema.partial().optional(),
+  teams: teamsSettingsSchema.partial().optional(),
   discord: discordSettingsSchema.partial().optional(),
   smtp: smtpSettingsSchema.partial().optional(),
   thresholds: thresholdSettingsSchema.partial().optional(),
