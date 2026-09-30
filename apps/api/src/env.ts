@@ -100,7 +100,7 @@ function resolveAgentSourceDir(): string {
 
 const dataDir = path.resolve(process.env.DATA_DIR ?? path.join(cwd, "../../data"))
 fs.mkdirSync(dataDir, { recursive: true })
-for (const dir of ["files", "screenshots", "updates", "backups", "staged", "plugins", "packs"]) {
+for (const dir of ["files", "screenshots", "updates", "backups", "staged", "plugins", "modules", "packs"]) {
   fs.mkdirSync(path.join(dataDir, dir), { recursive: true })
 }
 

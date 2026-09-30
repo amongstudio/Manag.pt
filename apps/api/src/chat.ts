@@ -5,7 +5,6 @@ import {
   copilotToolNeedsConfirm,
   isCommandTerminal,
   isCopilotCommandType,
-  runPluginPayloadSchema,
   validateCommandPayload,
   type ChatToolCall,
 } from "@workspace/shared"
@@ -13,7 +12,6 @@ import {
 import { dispatchQueuedCommands } from "./agent-ws.js"
 import { emitDevice, emitFleet } from "./io-emit.js"
 import { errorBody, parseJson } from "./lib.js"
-import { filterPluginTargets } from "./plugin-access.js"
 import { getSettings } from "./settings.js"
 
 export const CHAT_RATE_LIMIT = 20
@@ -287,23 +285,6 @@ const COPILOT_OPENAI_TOOLS = [
   {
     type: "function",
     function: {
-      name: "run_plugin",
-      description:
-        "Run a plugin already granted to this device. Destructive: the operator must confirm before it queues.",
-      parameters: {
-        type: "object",
-        properties: {
-          pluginId: { type: "string" },
-          args: { type: "array", items: { type: "string" } },
-        },
-        required: ["pluginId"],
-        additionalProperties: false,
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
       name: "preview_file",
       description: "Preview a text or small file in the sandbox.",
       parameters: {
@@ -358,17 +339,7 @@ export async function queueCopilotCommand(
   if (!isCopilotCommandType(type)) return { ok: false, error: "tool_not_allowed" }
   const checked = validateCommandPayload(type, payload)
   if (!checked.ok) return { ok: false, error: "invalid_payload" }
-  let body = checked.payload
-  if (type === "run_plugin") {
-    const plug = runPluginPayloadSchema.safeParse(body)
-    if (!plug.success) return { ok: false, error: "invalid_plugin_payload" }
-    body = { pluginId: plug.data.pluginId, args: plug.data.args }
-    const filtered = await filterPluginTargets(plug.data.pluginId, [deviceId])
-    if (!filtered.ok) return { ok: false, error: filtered.error }
-    if (!filtered.deviceIds.length) {
-      return { ok: false, error: filtered.skipped[0]?.reason ?? "grant_denied" }
-    }
-  }
+  const body = checked.payload
   const row = await prisma.command.create({
     data: {
       deviceId,
@@ -407,26 +378,10 @@ async function waitForCommand(
   }
 }
 
-async function grantedPlugins(deviceId: string) {
-  return prisma.plugin.findMany({
-    where: { OR: [{ allDevices: true }, { grants: { some: { deviceId } } }] },
-    select: { id: true, name: true, version: true },
-    orderBy: { name: "asc" },
-    take: 50,
-  })
-}
-
-function systemPrompt(
-  device: Device,
-  plugins: Array<{ id: string; name: string; version: string }>
-): string {
-  const pluginLines = plugins.length
-    ? plugins.map((p) => `- ${p.name} (${p.id}) v${p.version}`).join("\n")
-    : "None granted."
+function systemPrompt(device: Device): string {
   return `You are the Mnag.pt fleet operations copilot for one enrolled device.
 You help the operator inspect and manage that device by calling tools that queue existing agent commands.
-You cannot persist hidden state. You cannot invent command types, bypass the file sandbox, skip plugin grants, or run unlisted tools.
-Destructive tools (run_plugin) wait for the operator to confirm in the dashboard before they queue.
+You cannot persist hidden state. You cannot invent command types, bypass the file sandbox, or run unlisted tools.
 Stay on fleet operations for this device. Do not assist with attacks, malware, or anything outside administering this operator-owned device.
 
 Device:
@@ -435,9 +390,6 @@ Device:
 - arch: ${device.arch}
 - status: ${device.status}
 - agentVersion: ${device.agentVersion}
-
-Granted plugins (run_plugin pluginId must be one of these):
-${pluginLines}
 
 Prefer get_processes, get_files, get_services, get_registry, get_adapters, get_ports, get_firewall, get_event_log, get_windows_update, get_admin_center, get_tasks, get_defender, get_bitlocker, get_capabilities, get_smb, smb_list, search_files, and preview_file for inspection.
 Use run_script only when the operator asked for a script and keep it short.
@@ -712,7 +664,6 @@ async function runModelLoop(
   llm: { url: string; apiKey: string; model: string },
   timeoutMs: number
 ): Promise<{ pendingConfirm: boolean; assistantId: string | null; error?: string }> {
-  const plugins = await grantedPlugins(device.id)
   let assistantId: string | null = null
   for (let round = 0; round < CHAT_MAX_TOOL_ROUNDS; round++) {
     const rows = await loadThreadMessages(threadId)
@@ -728,7 +679,7 @@ async function runModelLoop(
         url: llm.url,
         apiKey: llm.apiKey,
         model: llm.model,
-        messages: [{ role: "system", content: systemPrompt(device, plugins) }, ...historyToOpenAi(recent)],
+        messages: [{ role: "system", content: systemPrompt(device) }, ...historyToOpenAi(recent)],
         onDelta: (text) => {
           content += text
           emitDelta(app, device.id, { threadId, messageId: assistant.id, delta: text })

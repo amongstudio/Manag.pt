@@ -15,6 +15,8 @@ cd apps/helper && go test ./...
 
 API tests are `node:test` via `tsx`. Scan and posture checks live in `apps/api/src/scan.test.ts` and `platform.test.ts`. They do not open a socket to the public internet.
 
+Safe-module schema, signature, PE-kind, hash-failure, argument, cancellation, output-bound, timeout, and unsupported-DLL checks live in `packages/shared/src/schemas.test.ts`, `apps/api/src/module.test.ts`, and `apps/agent/internal/moduletool/moduletool_test.go`.
+
 Agent scan tests read:
 
 - `apps/agent/testdata/nmap-localhost.xml`

@@ -468,6 +468,9 @@ func (p *program) run() {
 		OnE2E:       p.onE2E,
 		OnFileChunk: p.xfer.Handle,
 		OnShell:     p.sh.Handle,
+		OnCommandCancel: func(commandID string) {
+			commands.Cancel(commandID)
+		},
 	})
 	if p.mesh != nil {
 		p.mesh.SetExec(func(typ string, payload json.RawMessage) (any, error) {
@@ -625,6 +628,7 @@ func (p *program) runOne(api *client.Client, sandbox *filemanager.Sandbox, cmd c
 		Version:       Version,
 		DataDir:       p.cfg.DataDir,
 		EnablePlugins: p.cfg.EnablePlugins,
+		CommandID:     cmd.ID,
 		ApplyWatched:  p.applyWatched,
 		Progress: func(n int) {
 			p.reportProgress(api, cmd.ID, resultID, n)
@@ -650,7 +654,11 @@ func (p *program) runOne(api *client.Client, sandbox *filemanager.Sandbox, cmd c
 	}
 	status := "success"
 	if handleErr != nil {
-		status = "failed"
+		if commands.IsCancelled(handleErr) {
+			status = "cancelled"
+		} else {
+			status = "failed"
+		}
 		p.log.Notef("ERROR", "command %s %s: %v", cmd.ID, cmd.Type, handleErr)
 		result = commands.ErrorResult(result, handleErr)
 	}

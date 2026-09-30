@@ -38,3 +38,25 @@ func TestApplyMaxUploadBytes(t *testing.T) {
 		t.Fatalf("got %d want 1024", MaxUploadBytes())
 	}
 }
+
+func TestSecureModuleURL(t *testing.T) {
+	for _, raw := range []string{
+		"https://fleet.example/api/v1/agent/download-module",
+		"http://localhost:4000/api/v1/agent/download-module",
+		"http://127.0.0.1:4000/api/v1/agent/download-module",
+		"http://[::1]:4000/api/v1/agent/download-module",
+	} {
+		if !secureModuleURL(raw) {
+			t.Fatalf("expected secure module URL: %s", raw)
+		}
+	}
+	for _, raw := range []string{
+		"http://10.0.0.5:4000/api/v1/agent/download-module",
+		"file:///tmp/tool.exe",
+		"not-a-url",
+	} {
+		if secureModuleURL(raw) {
+			t.Fatalf("expected rejected module URL: %s", raw)
+		}
+	}
+}

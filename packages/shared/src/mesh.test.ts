@@ -33,6 +33,7 @@ test("mesh allowlist defaults to files-adjacent get_* only", () => {
 
 test("mesh never allows plugin blobs or ticketed peer ops from peers", () => {
   assert.equal(meshCommandAllowed("run_plugin", ["run_plugin"]), false)
+  assert.equal(meshCommandAllowed("run_module", ["run_module"]), false)
   assert.equal(meshCommandAllowed("peer_listen", ["peer_listen"]), false)
   assert.equal(meshCommandAllowed("peer_offer", ["peer_offer"]), false)
   assert.equal(meshCommandAllowed("update_agent", ["update_agent"]), false)
@@ -48,6 +49,7 @@ test("mesh extras require explicit allowCommands", () => {
   assert.equal(meshExtraCommandChoices().includes("smb_connect"), true)
   assert.equal(meshExtraCommandChoices().includes("get_processes"), false)
   assert.equal(meshExtraCommandChoices().includes("run_plugin"), false)
+  assert.equal(meshExtraCommandChoices().includes("run_module"), false)
   assert.equal(meshExtraCommandChoices().includes("get_credentials"), false)
   assert.equal(meshExtraCommandChoices().includes("set_bitlocker"), false)
 })

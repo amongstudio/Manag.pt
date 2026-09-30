@@ -17,6 +17,31 @@ function headerString(value: unknown): string {
   return ""
 }
 
+function normalizedOrigin(value: string): string {
+  try {
+    return new URL(value).origin
+  } catch {
+    return ""
+  }
+}
+
+export function adminMutationOriginAllowed(
+  method: string,
+  headers: Record<string, unknown>
+): boolean {
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return true
+  const origin = normalizedOrigin(headerString(headers.origin))
+  const fetchSite = headerString(headers["sec-fetch-site"]).toLowerCase()
+  if (!origin) return fetchSite !== "cross-site"
+  const configured = env.cors.origin === true ? [] : env.cors.origin
+  const allowed = new Set(
+    [...configured, env.publicUrl]
+      .map(normalizedOrigin)
+      .filter(Boolean)
+  )
+  return allowed.has(origin)
+}
+
 export function cookieNamed(cookieHeader: unknown, name: string): string {
   const raw = headerString(cookieHeader)
   if (!raw) return ""

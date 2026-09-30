@@ -13,6 +13,8 @@ Scan-related types:
 
 `internal/scan` parses Nmap XML and Nuclei JSONL. Tests use `apps/agent/testdata`. They do not scan the network.
 
+`run_module` is implemented in `internal/moduletool`. It accepts only a catalog ID, the expected signed manifest, and a bounded argument array. EXEs run directly as child processes after signature, hash, PE, target, and argument checks. `run_plugin` is disabled. DLL plug-ins return an explicit unsupported error until a dedicated module-host executable and ABI exist.
+
 ## Adding a command
 
 1. Add the string to `COMMAND_TYPES` in `packages/shared/src/commands.ts`.

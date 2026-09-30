@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify"
 import { Prisma, prisma } from "@workspace/db"
 import {
   API_PREFIX,
+  AGENT_WS_TYPE,
   commandTemplateWriteSchema,
   COMMAND_ACTIVE_STATUS,
   COMMAND_TERMINAL_STATUS,
@@ -22,7 +23,7 @@ import {
   parseStoredLanAddrs,
   redactCredentialCommand,
   redactSettings,
-  runPluginPayloadSchema,
+  runModulePayloadSchema,
   validateCommandPayload,
   WS_EVENTS,
   type CommandType,
@@ -35,7 +36,7 @@ import { env, dataPath, iceServersForClient } from "./env.js"
 import { emitFleet } from "./io-emit.js"
 import { errorBody, multipartValue, pathExists, randomToken, safeUploadFilename, trySafePath, parseJson, updateKindFromArtifact } from "./lib.js"
 import { sqliteBackup } from "./jobs.js"
-import { filterPluginTargets } from "./plugin-access.js"
+import { filterModuleTargets } from "./module-access.js"
 import { appendAudit } from "./audit.js"
 import { operatorAuthorized } from "./operator-auth.js"
 import { getSettings, parseSettingsPatch, patchSettings } from "./settings.js"
@@ -54,6 +55,12 @@ function serializeCommand<T extends { type: string; payload: string; result: str
     payload: redacted.payload,
     result: redacted.result,
   }
+}
+
+function serializeArtifactRow<T extends { path: string }>(row: T): Omit<T, "path"> {
+  const safe = { ...row }
+  Reflect.deleteProperty(safe, "path")
+  return safe as Omit<T, "path">
 }
 
 function pageLimit(raw: string | undefined, fallback: number, max = 200): number {
@@ -396,14 +403,28 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     }
     let skipped: Array<{ deviceId: string; reason: string }> = []
     if (type === "run_plugin") {
-      const plug = runPluginPayloadSchema.safeParse(payload)
-      if (!plug.success) return reply.code(400).send(errorBody("invalid_plugin_payload", plug.error.flatten()))
-      payload = { pluginId: plug.data.pluginId, args: plug.data.args }
-      const filtered = await filterPluginTargets(plug.data.pluginId, deviceIds)
-      if (!filtered.ok) return reply.code(filtered.status).send(errorBody(filtered.error))
+      return reply.code(410).send(errorBody("legacy_plugins_disabled_use_modules"))
+    }
+    if (type === "run_module") {
+      const run = runModulePayloadSchema.safeParse(payload)
+      if (!run.success) return reply.code(400).send(errorBody("invalid_module_payload", run.error.flatten()))
+      const filtered = await filterModuleTargets({
+        moduleId: run.data.moduleId,
+        expectedSignature: run.data.expectedSignature,
+        args: run.data.args,
+        deviceIds,
+      })
+      if (!filtered.ok) {
+        return reply.code(filtered.status).send(errorBody(filtered.error, filtered.details))
+      }
       skipped = filtered.skipped
       deviceIds = filtered.deviceIds
-      if (!deviceIds.length) return reply.code(403).send(errorBody("grant_denied", { skipped }))
+      if (!deviceIds.length) return reply.code(403).send(errorBody("module_target_denied", { skipped }))
+      payload = {
+        moduleId: filtered.module.id,
+        expectedSignature: filtered.module.signature,
+        args: run.data.args,
+      }
     }
     const sealed = await Promise.all(
       deviceIds.map(async (deviceId) => ({
@@ -445,6 +466,20 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         detail: { deviceIds, payload },
       })
     }
+    if (type === "run_module") {
+      const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
+      await appendAudit({
+        actor: authed.username || "operator",
+        action: "module_run",
+        detail: {
+          moduleId: (payload as { moduleId?: unknown }).moduleId,
+          expectedSignature: (payload as { expectedSignature?: unknown }).expectedSignature,
+          deviceIds,
+          commandIds: created.map((row) => row.id),
+          skipped,
+        },
+      })
+    }
     if (type === "kill_switch") {
       await enqueueAlert(app, {
         type: "kill_switch",
@@ -469,6 +504,9 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     if (updated.type === "start_watch") {
       await applyWatchSideEffect(updated.deviceId, "stop_watch", {})
     }
+    if (updated.type === "run_module") {
+      sendToAgent(updated.deviceId, { type: AGENT_WS_TYPE.command_cancel, id: updated.id })
+    }
     emitFleet(app, WS_EVENTS.COMMAND_RESULT, {
       id: updated.id,
       deviceId: updated.deviceId,
@@ -476,6 +514,16 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       status: updated.status,
       result: { error: "cancelled" },
     })
+    if (updated.type === "run_module") {
+      const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
+      const payload = parseJson<Record<string, unknown>>(updated.payload, {})
+      await appendAudit({
+        actor: authed.username || "operator",
+        action: "module_run_cancel",
+        deviceId: updated.deviceId,
+        detail: { commandId: updated.id, moduleId: payload.moduleId },
+      })
+    }
     return { command: serializeCommand(updated) }
   })
 
@@ -487,6 +535,25 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(409).send(errorBody("not_retryable", { status: command.status }))
     }
     const payload = parseJson<Record<string, unknown>>(command.payload, {})
+    if (command.type === "run_plugin") {
+      return reply.code(410).send(errorBody("legacy_plugins_disabled_use_modules"))
+    }
+    if (command.type === "run_module") {
+      const run = runModulePayloadSchema.safeParse(payload)
+      if (!run.success) return reply.code(409).send(errorBody("invalid_module_payload"))
+      const filtered = await filterModuleTargets({
+        moduleId: run.data.moduleId,
+        expectedSignature: run.data.expectedSignature,
+        args: run.data.args,
+        deviceIds: [command.deviceId],
+      })
+      if (!filtered.ok) {
+        return reply.code(filtered.status).send(errorBody(filtered.error, filtered.details))
+      }
+      if (!filtered.deviceIds.length) {
+        return reply.code(403).send(errorBody("module_target_denied", { skipped: filtered.skipped }))
+      }
+    }
     const sealed = await prepareCredentialCommand(command.deviceId, command.type, payload)
     const row = await prisma.command.create({
       data: {
@@ -504,6 +571,20 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       type: row.type,
       status: row.status,
     })
+    if (row.type === "run_module") {
+      const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
+      await appendAudit({
+        actor: authed.username || "operator",
+        action: "module_run_retry",
+        deviceId: row.deviceId,
+        detail: {
+          moduleId: payload.moduleId,
+          expectedSignature: payload.expectedSignature,
+          commandId: row.id,
+          previousCommandId: command.id,
+        },
+      })
+    }
     return { command: serializeCommand(row) }
   })
 
@@ -599,6 +680,9 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const parsed = commandTemplateWriteSchema.safeParse(req.body)
     if (!parsed.success) return reply.code(400).send(errorBody("invalid_body", parsed.error.flatten()))
     const type = parsed.data.type as CommandType
+    if (type === "run_plugin" || type === "run_module") {
+      return reply.code(400).send(errorBody("module_commands_cannot_be_templated"))
+    }
     const checked = validateCommandPayload(type, parsed.data.payload ?? {})
     if (!checked.ok) return reply.code(400).send(errorBody("invalid_payload", checked.error.flatten()))
     const row = await prisma.commandTemplate.create({
@@ -739,7 +823,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.get(`${API_PREFIX}/admin/updates`, async () => {
     const updates = await prisma.agentUpdate.findMany({ orderBy: { createdAt: "desc" } })
-    return { updates }
+    return { updates: updates.map(serializeArtifactRow) }
   })
 
   app.post(`${API_PREFIX}/admin/updates`, async (req, reply) => {
@@ -787,7 +871,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       create: { kind, version, platform, arch, notes, checksum, path: dest, size },
       update: { notes, checksum, path: dest, size },
     })
-    return { update: row }
+    return { update: serializeArtifactRow(row) }
   })
 
   app.get(`${API_PREFIX}/admin/security`, async () => {
@@ -799,7 +883,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(`${API_PREFIX}/admin/backup`, async () => {
     const dest = await sqliteBackup()
-    return { dest }
+    return { ok: true, filename: path.basename(dest) }
   })
 
   app.post(`${API_PREFIX}/admin/devices/:id/e2e/session`, async (req, reply) => {

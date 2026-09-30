@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 
 import { deviceKeyMatches, hashDeviceKey, httpRateLimitBucket, ipAllowed, isHelperArtifact, parseJson, sha256, signPeerTicket, trySafePath, updateKindFromArtifact, verifyPeerTicket } from "./lib.ts"
-import { extractOperatorToken, operatorTokenMatches } from "./operator-auth.ts"
+import { adminMutationOriginAllowed, extractOperatorToken, operatorTokenMatches } from "./operator-auth.ts"
 
 test("ipAllowed empty list permits all", () => {
   assert.equal(ipAllowed("10.0.0.8", []), true)
@@ -35,6 +35,19 @@ test("extractOperatorToken reads cookie", () => {
     "secret"
   )
   assert.equal(extractOperatorToken({ headers: { "x-operator-token": "hdr" } }), "hdr")
+})
+
+test("admin mutations reject cross-site origins and allow configured dashboard origin", () => {
+  assert.equal(
+    adminMutationOriginAllowed("POST", {
+      origin: "https://attacker.example",
+      "sec-fetch-site": "cross-site",
+    }),
+    false
+  )
+  assert.equal(adminMutationOriginAllowed("POST", { origin: "http://localhost:3000" }), true)
+  assert.equal(adminMutationOriginAllowed("POST", {}), true)
+  assert.equal(adminMutationOriginAllowed("GET", { origin: "https://attacker.example" }), true)
 })
 
 test("deviceKeyMatches accepts legacy sha256 hashes", () => {

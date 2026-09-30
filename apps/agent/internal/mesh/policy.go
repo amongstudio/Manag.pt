@@ -36,6 +36,7 @@ var defaultCommands = []string{
 
 var neverCommands = map[string]struct{}{
 	"run_plugin":             {},
+	"run_module":             {},
 	"peer_listen":            {},
 	"peer_offer":             {},
 	"update_agent":           {},

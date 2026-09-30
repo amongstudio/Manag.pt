@@ -587,15 +587,15 @@ export function SettingsPage() {
               ) : null}
               <p className="text-sm text-muted-foreground">
                 When on, enrolled agents keep a persistent mTLS listener on port 17891. Files always work. Commands
-                default to get_* only. kill_switch, set_registry, and run_plugin stay off unless you allow them —
-                plugin blobs from peers are never accepted. Last-known policy applies if the server is down.
+                default to get_* only. kill_switch and set_registry stay off unless you allow them. Module and legacy
+                plugin execution are never accepted from peers. Last-known policy applies if the server is down.
               </p>
               <Field>
                 <FieldLabel>Extra mesh commands</FieldLabel>
                 <FieldDescription>
                   Defaults (always on): get_files, get_processes, get_services, get_registry, get_adapters, get_ports,
                   get_firewall, get_event_log, get_windows_update, get_admin_center, get_tasks, get_defender,
-                  get_bitlocker, get_capabilities, get_smb. run_plugin, peer copy, and
+                  get_bitlocker, get_capabilities, get_smb. run_module, legacy run_plugin, peer copy, and
                   update_agent cannot be allowed from peers.
                 </FieldDescription>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">

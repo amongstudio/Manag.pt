@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -777,4 +778,85 @@ func (c *Client) DownloadPlugin(id, dest string, expectedSize int64) error {
 		return closeErr
 	}
 	return nil
+}
+
+type ModuleArgumentSpec struct {
+	Name      string   `json:"name"`
+	Type      string   `json:"type"`
+	Required  bool     `json:"required"`
+	MaxLength int      `json:"maxLength"`
+	Choices   []string `json:"choices,omitempty"`
+}
+
+type ModuleMeta struct {
+	ID              string               `json:"id"`
+	DisplayName     string               `json:"displayName"`
+	Version         string               `json:"version"`
+	Kind            string               `json:"kind"`
+	Platform        string               `json:"platform"`
+	Arch            string               `json:"arch"`
+	SHA256          string               `json:"sha256"`
+	Size            int64                `json:"size"`
+	Signer          string               `json:"signer"`
+	Signature       string               `json:"signature"`
+	PublicKey       string               `json:"publicKey"`
+	Entrypoint      string               `json:"entrypoint"`
+	Action          string               `json:"action"`
+	ArgumentsSchema []ModuleArgumentSpec `json:"argumentsSchema"`
+	TimeoutSec      int                  `json:"timeoutSec"`
+	MaxOutputBytes  int                  `json:"maxOutputBytes"`
+	NetworkAllowed  bool                 `json:"networkAllowed"`
+	Enabled         bool                 `json:"enabled"`
+	Revoked         bool                 `json:"revoked"`
+	DownloadURL     string               `json:"downloadUrl"`
+}
+
+func (c *Client) FetchModuleMeta(id string) (*ModuleMeta, error) {
+	if err := validatePluginID(id); err != nil {
+		return nil, fmt.Errorf("invalid module id")
+	}
+	c.mu.Lock()
+	activeBase := c.base
+	c.mu.Unlock()
+	if !secureModuleURL(activeBase) {
+		return nil, fmt.Errorf("module transport requires HTTPS")
+	}
+	var out struct {
+		Module ModuleMeta `json:"module"`
+	}
+	if err := c.doJSON(http.MethodGet, "/api/v1/agent/modules/"+id, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Module.ID != id {
+		return nil, fmt.Errorf("module metadata mismatch")
+	}
+	return &out.Module, nil
+}
+
+func (c *Client) DownloadModule(meta *ModuleMeta, dest string) error {
+	if meta == nil || meta.DownloadURL == "" {
+		return fmt.Errorf("module download URL missing")
+	}
+	if meta.Size <= 0 || meta.Size > MaxUpdateBytes {
+		return fmt.Errorf("module exceeds size limit")
+	}
+	if !secureModuleURL(meta.DownloadURL) {
+		return fmt.Errorf("module download requires HTTPS")
+	}
+	return c.DownloadURL(meta.DownloadURL, dest, meta.Size)
+}
+
+func secureModuleURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme == "https" {
+		return true
+	}
+	if parsed.Scheme != "http" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }

@@ -28,6 +28,7 @@ const (
 	TypePong            = "pong"
 	TypeCommand         = "command"
 	TypeCommandAck      = "command_ack"
+	TypeCommandCancel   = "command_cancel"
 	TypeCommandResult   = "command_result"
 	TypeHeartbeat       = "heartbeat"
 	TypeAgentConfig     = "agent_config"
@@ -146,6 +147,11 @@ type Command struct {
 }
 
 type CommandAck struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+type CommandCancel struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
 }

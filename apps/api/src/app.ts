@@ -12,16 +12,21 @@ import { registerAgentRoutes } from "./routes-agent.js"
 import { registerAdminRoutes } from "./routes-admin.js"
 import { registerCredentialRoutes } from "./routes-credentials.js"
 import { registerChatRoutes } from "./routes-chat.js"
-import { registerPluginRoutes } from "./routes-plugins.js"
 import { registerBuilderRoutes } from "./routes-builder.js"
 import { registerPlatformRoutes } from "./routes-platform.js"
 import { registerScanRoutes } from "./routes-scans.js"
 import { registerConfigRoutes } from "./routes-config.js"
+import { registerModuleRoutes } from "./routes-modules.js"
 import { primeOperatorConfig } from "./operator-config.js"
 import { startJobs } from "./jobs.js"
 import { getSettings } from "./settings.js"
 import { clientIp, httpRateLimitBucket, ipAllowed } from "./lib.js"
-import { requireOperator, operatorTokenConfigured, passwordAuthEnabled } from "./operator-auth.js"
+import {
+  adminMutationOriginAllowed,
+  requireOperator,
+  operatorTokenConfigured,
+  passwordAuthEnabled,
+} from "./operator-auth.js"
 import { registerAuthRoutes } from "./routes-auth.js"
 import { hydrateRemoteSessions } from "./remote-session.js"
 import { restoreE2ESession } from "./e2e-relay.js"
@@ -64,6 +69,9 @@ async function main() {
     const path = (req.url ?? "").split("?")[0] ?? ""
     if (path.startsWith(`${API_PREFIX}/admin`)) {
       if (!(await requireOperator(req, reply))) return
+      if (!adminMutationOriginAllowed(req.method, req.headers as Record<string, unknown>)) {
+        return reply.code(403).send({ error: "origin_not_allowed" })
+      }
     }
     if (env.ipAllowlist.length === 0) return
     const ip = clientIp(req.headers as Record<string, unknown>, req.ip)
@@ -81,11 +89,11 @@ async function main() {
   await registerCredentialRoutes(app)
   await registerAuthRoutes(app)
   await registerChatRoutes(app)
-  await registerPluginRoutes(app)
   await registerBuilderRoutes(app)
   await registerPlatformRoutes(app)
   await registerScanRoutes(app)
   await registerConfigRoutes(app)
+  await registerModuleRoutes(app)
   startJobs(app)
 
   await app.listen({ port: env.port, host: env.host })

@@ -97,6 +97,15 @@ func TestHandlePayloadValidation(t *testing.T) {
 	if Classify("restore_credentials") != ClassLong || Classify("backup_credentials") != ClassLong {
 		t.Fatal("credential commands should be long")
 	}
+	if Classify("run_module") != ClassLong {
+		t.Fatal("run_module should be long")
+	}
+	if _, err = Handle("run_plugin", json.RawMessage(`{"pluginId":"legacy"}`), Deps{EnablePlugins: true}); err == nil {
+		t.Fatal("legacy plugins must remain disabled")
+	}
+	if _, err = Handle("run_module", json.RawMessage(`{"moduleId":"tool","expectedSignature":"x"}`), Deps{}); err == nil {
+		t.Fatal("run_module without an authenticated client must fail")
+	}
 	if Classify("set_bitlocker") != ClassLong || Classify("cancel_defender_scan") != ClassLong {
 		t.Fatal("bitlocker/defender writes should be long")
 	}

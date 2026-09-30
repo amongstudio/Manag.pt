@@ -32,6 +32,7 @@ export const AGENT_WS_TYPE = {
   pong: "pong",
   command: "command",
   command_ack: "command_ack",
+  command_cancel: "command_cancel",
   command_result: "command_result",
   heartbeat: "heartbeat",
   metrics: "metrics",
@@ -180,6 +181,11 @@ export type Command = {
 
 export type CommandAck = {
   type: "command_ack"
+  id: string
+}
+
+export type CommandCancel = {
+  type: "command_cancel"
   id: string
 }
 

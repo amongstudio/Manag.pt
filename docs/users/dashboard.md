@@ -41,9 +41,11 @@ Fleet software search. **Name contains** and **Version equals** are SQL filters 
 
 Start a scan for a device: Nmap, Nuclei, or host posture. The API refuses targets outside the scan scope before a command is queued. Operators edit that scope on Configuration. The file `config/scan-scope.yaml` is only the default copied into SQLite the first time. An empty allowlist with lab mode off is rejected, and `0.0.0.0/0` is rejected. The scans table shows status and summary (`nmap_unavailable`, `nuclei_unavailable`, `trivy_unavailable`, or a finding count). Filters cover severity, status, port, and service. **Ack**, **Accept** (asks for a reason), **Link script**, and **Remediate** call the findings API. Remediate stays disabled until a library script is linked, and it only moves `open` or `acknowledged` findings to `remediating`.
 
-## Plugins (`/plugins`)
+## Modules (`/modules`)
 
-Upload or stamp a plugin and grant devices. `run_plugin` still requires a grant.
+Register approved Windows EXE tools or DLL plug-in artifacts. New artifacts are disabled and ungranted. Review the signed manifest, approve it, grant devices, and confirm each EXE run. The agent verifies the signature and SHA-256 before every bounded child-process execution. DLLs show `host pending` and cannot run.
+
+The old `/plugins` page only links here. Arbitrary script/binary plugin upload and `run_plugin` dispatch are disabled. There are no process-injection controls.
 
 ## Builder (`/builder`)
 

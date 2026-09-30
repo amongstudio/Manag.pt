@@ -1,13 +1,27 @@
-import { PluginsPage } from "@/components/plugins-page"
+import Link from "next/link"
+
+import { Button } from "@workspace/ui/components/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@workspace/ui/components/card"
 
 export default function Page() {
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-medium">Plugins</h1>
-        <p className="text-sm text-muted-foreground">Upload plugins and run them on enrolled agents.</p>
-      </div>
-      <PluginsPage />
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Legacy plugins are disabled</CardTitle>
+        <CardDescription>
+          Arbitrary script and binary uploads were replaced by the signed,
+          approval-gated module library.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button render={<Link href="/modules" />}>Open module library</Button>
+      </CardContent>
+    </Card>
   )
 }

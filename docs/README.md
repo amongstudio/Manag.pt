@@ -18,6 +18,7 @@ Mnag.pt 3.3.0. These pages describe the code on `cursor/config-console-4753` and
 - [Architecture](developers/architecture.md)
 - [Data model](developers/data-model.md)
 - [Agent commands](developers/agent.md)
+- [Safe module library](developers/modules.md)
 - [Testing](developers/testing.md)
 
 ## Operators

@@ -9,12 +9,18 @@ import {
   agentLogSchema,
   commandResultSchema,
   heartbeatSchema,
+  moduleArgumentsSchemaSchema,
   registerSchema,
   WS_EVENTS,
 } from "@workspace/shared"
 
 import { isAgentWsConnected } from "./agent-ws.js"
-import { claimPendingCommands, ingestCommandResult, ingestHeartbeat, revertCommandToPending } from "./agent-ingest.js"
+import {
+  claimPendingCommands,
+  ingestCommandResult,
+  ingestHeartbeat,
+  revertCommandToPending,
+} from "./agent-ingest.js"
 import { hydrateCommandPayload } from "./vault.js"
 import { COMMAND_POLL_MS, waitForDeviceCommands } from "./command-waiters.js"
 import { deviceFromHeaders } from "./device-auth.js"
@@ -42,12 +48,21 @@ import { issueMeshBundle } from "./mesh.js"
 import { issueWsChallenge } from "./ws-challenge.js"
 import { enqueueAlert } from "./notify.js"
 import { afterPeerCommandIngest } from "./peer-copy.js"
-import { pluginGrantedToDevice } from "./plugin-access.js"
+import { moduleGrantedToDevice } from "./module-access.js"
+import { moduleSigner, verifyStoredModule } from "./module-signing.js"
 import { ingestScreenshotBytes } from "./screenshot-ingest.js"
 import { isFileTooLargeError, writeUploadStream } from "./upload.js"
 
-async function requireDevice(req: FastifyRequest, reply: FastifyReply): Promise<Device | null> {
-  if (!ipAllowed(clientIp(req.headers as Record<string, unknown>, req.ip), env.ipAllowlist)) {
+async function requireDevice(
+  req: FastifyRequest,
+  reply: FastifyReply
+): Promise<Device | null> {
+  if (
+    !ipAllowed(
+      clientIp(req.headers as Record<string, unknown>, req.ip),
+      env.ipAllowlist
+    )
+  ) {
     reply.code(403).send(errorBody("ip_not_allowed"))
     return null
   }
@@ -62,7 +77,10 @@ async function requireDevice(req: FastifyRequest, reply: FastifyReply): Promise<
 export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
   app.post(`${API_PREFIX}/agent/register`, async (req, reply) => {
     const parsed = registerSchema.safeParse(req.body)
-    if (!parsed.success) return reply.code(400).send(errorBody("invalid_body", parsed.error.flatten()))
+    if (!parsed.success)
+      return reply
+        .code(400)
+        .send(errorBody("invalid_body", parsed.error.flatten()))
     if (!safeEqual(parsed.data.enrollmentSecret, env.enrollmentSecret)) {
       return reply.code(403).send(errorBody("invalid_enrollment_secret"))
     }
@@ -75,9 +93,13 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
       mac: parsed.data.mac,
       status: "online" as const,
       lastSeen: new Date(),
-      ...(parsed.data.e2ePub ? { e2ePub: parsed.data.e2ePub.toLowerCase() } : {}),
+      ...(parsed.data.e2ePub
+        ? { e2ePub: parsed.data.e2ePub.toLowerCase() }
+        : {}),
     }
-    const existingById = await prisma.device.findUnique({ where: { id: parsed.data.deviceId } })
+    const existingById = await prisma.device.findUnique({
+      where: { id: parsed.data.deviceId },
+    })
     const existingByHost = await prisma.device.findFirst({
       where: { hostname: parsed.data.hostname, platform: parsed.data.platform },
       orderBy: { lastSeen: "desc" },
@@ -124,9 +146,15 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
         where: { id: decision.deviceId },
         data,
       })
-      emitFleet(app, WS_EVENTS.DEVICE_STATUS, { id: device.id, status: "online", hostname: device.hostname })
+      emitFleet(app, WS_EVENTS.DEVICE_STATUS, {
+        id: device.id,
+        status: "online",
+        hostname: device.hostname,
+      })
       const mesh = issueMeshBundle(device.id)
-      return deviceKey ? { deviceId: device.id, deviceKey, mesh } : { deviceId: device.id, mesh }
+      return deviceKey
+        ? { deviceId: device.id, deviceKey, mesh }
+        : { deviceId: device.id, mesh }
     }
     const deviceKey = randomToken(32)
     const device = await prisma.device.create({
@@ -136,7 +164,11 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
         enrollmentKeyHash: hashDeviceKey(deviceKey),
       },
     })
-    emitFleet(app, WS_EVENTS.DEVICE_STATUS, { id: device.id, status: "online", hostname: device.hostname })
+    emitFleet(app, WS_EVENTS.DEVICE_STATUS, {
+      id: device.id,
+      status: "online",
+      hostname: device.hostname,
+    })
     await enqueueAlert(app, {
       type: "device_online",
       deviceId: device.id,
@@ -156,14 +188,22 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     const device = await requireDevice(req, reply)
     if (!device) return
     const parsed = heartbeatSchema.safeParse(req.body)
-    if (!parsed.success) return reply.code(400).send(errorBody("invalid_body", parsed.error.flatten()))
+    if (!parsed.success)
+      return reply
+        .code(400)
+        .send(errorBody("invalid_body", parsed.error.flatten()))
     const ack = await ingestHeartbeat(
       app,
       device,
       parsed.data,
       clientIp(req.headers as Record<string, unknown>, req.ip)
     )
-    return { ok: true, serverTime: ack.serverTime, watch: ack.watch, agentConfig: ack.agentConfig }
+    return {
+      ok: true,
+      serverTime: ack.serverTime,
+      watch: ack.watch,
+      agentConfig: ack.agentConfig,
+    }
   })
 
   app.get(`${API_PREFIX}/agent/commands`, async (req, reply) => {
@@ -172,18 +212,29 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     if (isAgentWsConnected(device.id)) {
       return { commands: [] }
     }
-    const waitSec = Math.min(Number((req.query as { wait?: string }).wait ?? 0) || 0, 25)
+    const waitSec = Math.min(
+      Number((req.query as { wait?: string }).wait ?? 0) || 0,
+      25
+    )
     const deadline = Date.now() + waitSec * 1000
     const abort = new AbortController()
     const onClose = () => abort.abort()
     req.raw.on("close", onClose)
     let commands = await claimPendingCommands(device.id)
     try {
-      while (commands.length === 0 && Date.now() < deadline && !abort.signal.aborted) {
+      while (
+        commands.length === 0 &&
+        Date.now() < deadline &&
+        !abort.signal.aborted
+      ) {
         if (isAgentWsConnected(device.id)) break
         const remaining = deadline - Date.now()
         if (remaining <= 0) break
-        await waitForDeviceCommands(device.id, Math.min(COMMAND_POLL_MS, remaining), abort.signal)
+        await waitForDeviceCommands(
+          device.id,
+          Math.min(COMMAND_POLL_MS, remaining),
+          abort.signal
+        )
         if (abort.signal.aborted || isAgentWsConnected(device.id)) break
         commands = await claimPendingCommands(device.id)
       }
@@ -213,7 +264,9 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
         { deviceId: device.id, issues: parsed.error.flatten() },
         "invalid command_result body"
       )
-      return reply.code(400).send(errorBody("invalid_body", parsed.error.flatten()))
+      return reply
+        .code(400)
+        .send(errorBody("invalid_body", parsed.error.flatten()))
     }
     const result = await ingestCommandResult(app, device, parsed.data)
     if (!result.ok) return reply.code(404).send(errorBody("not_found"))
@@ -234,7 +287,10 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     const device = await requireDevice(req, reply)
     if (!device) return
     const parsed = agentLogSchema.safeParse(req.body)
-    if (!parsed.success) return reply.code(400).send(errorBody("invalid_body", parsed.error.flatten()))
+    if (!parsed.success)
+      return reply
+        .code(400)
+        .send(errorBody("invalid_body", parsed.error.flatten()))
     await prisma.log.createMany({
       data: parsed.data.entries.map((entry) => ({
         deviceId: device.id,
@@ -264,7 +320,9 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     let size = 0
     try {
       for await (const part of file.file) {
-        const buf = Buffer.isBuffer(part) ? part : Buffer.from(part as Uint8Array)
+        const buf = Buffer.isBuffer(part)
+          ? part
+          : Buffer.from(part as Uint8Array)
         size += buf.length
         if (size > env.maxScreenshotBytes) {
           return reply.code(400).send(errorBody("too_large"))
@@ -277,7 +335,11 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
       }
       throw error
     }
-    const result = await ingestScreenshotBytes(app, device, Buffer.concat(chunks))
+    const result = await ingestScreenshotBytes(
+      app,
+      device,
+      Buffer.concat(chunks)
+    )
     if ("error" in result) return reply.code(400).send(errorBody("too_large"))
     if ("skipped" in result) return { skipped: "e2e" }
     return { id: result.id, size: result.size }
@@ -296,7 +358,9 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
       throw error
     }
     if (!file) return reply.code(400).send(errorBody("file_required"))
-    const remotePath = trySafePath(multipartValue(file.fields as never, "remotePath") || file.filename)
+    const remotePath = trySafePath(
+      multipartValue(file.fields as never, "remotePath") || file.filename
+    )
     if (!remotePath) return reply.code(400).send(errorBody("path_denied"))
     const destDir = dataPath("files", device.id)
     await fsp.mkdir(destDir, { recursive: true })
@@ -304,7 +368,9 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     const dest = path.join(destDir, `${id}-${path.basename(remotePath)}`)
     let size = 0
     try {
-      size = await writeUploadStream(file.file, dest, { maxBytes: env.maxUploadBytes })
+      size = await writeUploadStream(file.file, dest, {
+        maxBytes: env.maxUploadBytes,
+      })
     } catch (error) {
       if (isFileTooLargeError(error)) {
         return reply.code(400).send(errorBody("too_large"))
@@ -335,10 +401,16 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send(errorBody("path_denied"))
     }
     const size = typeof body.size === "number" ? body.size : Number(body.size)
-    if (!remotePath) return reply.code(400).send(errorBody("remote_path_required"))
+    if (!remotePath)
+      return reply.code(400).send(errorBody("remote_path_required"))
     try {
       const row = await initUploadTransfer(device.id, remotePath, size)
-      return { id: row.id, offset: row.offset, size: row.size, status: row.status }
+      return {
+        id: row.id,
+        offset: row.offset,
+        size: row.size,
+        status: row.status,
+      }
     } catch (error) {
       if (error instanceof Error && error.message === "too_large") {
         return reply.code(400).send(errorBody("too_large"))
@@ -353,7 +425,13 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string }
     const row = await getTransfer(device.id, id)
     if (!row) return reply.code(404).send(errorBody("not_found"))
-    return { id: row.id, offset: row.offset, size: row.size, status: row.status, direction: row.direction }
+    return {
+      id: row.id,
+      offset: row.offset,
+      size: row.size,
+      status: row.status,
+      direction: row.direction,
+    }
   })
 
   app.get(`${API_PREFIX}/agent/files`, async (req, reply) => {
@@ -362,10 +440,14 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
     const q = req.query as { id?: string; offset?: string }
     const id = q.id
     if (!id) return reply.code(400).send(errorBody("id_required"))
-    const row = await prisma.fileInfo.findFirst({ where: { id, deviceId: device.id, direction: "download" } })
-    if (!row || !(await pathExists(row.localPath))) return reply.code(404).send(errorBody("not_found"))
+    const row = await prisma.fileInfo.findFirst({
+      where: { id, deviceId: device.id, direction: "download" },
+    })
+    if (!row || !(await pathExists(row.localPath)))
+      return reply.code(404).send(errorBody("not_found"))
     const offset = Math.max(0, Number(q.offset) || 0)
-    if (offset > row.size) return reply.code(400).send(errorBody("offset_mismatch"))
+    if (offset > row.size)
+      return reply.code(400).send(errorBody("offset_mismatch"))
     return reply.send(fs.createReadStream(row.localPath, { start: offset }))
   })
 
@@ -393,71 +475,142 @@ export async function registerAgentRoutes(app: FastifyInstance): Promise<void> {
 
   app.get(`${API_PREFIX}/agent/download-update`, async (req, reply) => {
     const query = req.query as { id?: string; exp?: string; sig?: string }
-    if (!query.id || !query.exp || !query.sig) return reply.code(400).send(errorBody("missing_params"))
+    if (!query.id || !query.exp || !query.sig)
+      return reply.code(400).send(errorBody("missing_params"))
     if (!verifyUpdateToken(query.id, Number(query.exp), query.sig)) {
       return reply.code(403).send(errorBody("invalid_signature"))
     }
-    const update = await prisma.agentUpdate.findUnique({ where: { id: query.id } })
-    if (!update || !(await pathExists(update.path))) return reply.code(404).send(errorBody("not_found"))
+    const update = await prisma.agentUpdate.findUnique({
+      where: { id: query.id },
+    })
+    if (!update || !(await pathExists(update.path)))
+      return reply.code(404).send(errorBody("not_found"))
     reply.header("content-type", "application/octet-stream")
-    reply.header("content-disposition", `attachment; filename="${path.basename(update.path)}"`)
+    reply.header(
+      "content-disposition",
+      `attachment; filename="${path.basename(update.path)}"`
+    )
     return reply.send(fs.createReadStream(update.path))
   })
 
   app.get(`${API_PREFIX}/agent/plugins/:id`, async (req, reply) => {
     const device = await requireDevice(req, reply)
     if (!device) return
-    const { id } = req.params as { id: string }
-    const plugin = await prisma.plugin.findUnique({ where: { id } })
-    if (!plugin) return reply.code(404).send(errorBody("not_found"))
-    if (!(await pluginGrantedToDevice(plugin.id, device.id))) {
-      return reply.code(403).send(errorBody("grant_denied"))
-    }
-    if (plugin.platform && plugin.platform !== device.platform) {
-      return reply.code(409).send(errorBody("platform_mismatch"))
-    }
-    if (plugin.arch && plugin.arch !== device.arch) {
-      return reply.code(409).send(errorBody("arch_mismatch"))
-    }
-    let size = 0
-    try {
-      size = (await fsp.stat(plugin.path)).size
-    } catch {
-      return reply.code(404).send(errorBody("not_found"))
-    }
-    return {
-      plugin: {
-        id: plugin.id,
-        name: plugin.name,
-        version: plugin.version,
-        runtime: plugin.runtime,
-        platform: plugin.platform,
-        arch: plugin.arch,
-        sha256: plugin.sha256,
-        timeoutSec: plugin.timeoutSec,
-        networkAllowed: plugin.networkAllowed,
-        size,
-      },
-    }
+    return reply
+      .code(410)
+      .send(errorBody("legacy_plugins_disabled_use_modules"))
   })
 
   app.get(`${API_PREFIX}/agent/plugins/:id/blob`, async (req, reply) => {
     const device = await requireDevice(req, reply)
     if (!device) return
+    return reply
+      .code(410)
+      .send(errorBody("legacy_plugins_disabled_use_modules"))
+  })
+
+  app.get(`${API_PREFIX}/agent/modules/:id`, async (req, reply) => {
+    const device = await requireDevice(req, reply)
+    if (!device) return
     const { id } = req.params as { id: string }
-    const plugin = await prisma.plugin.findUnique({ where: { id } })
-    if (!plugin || !(await pathExists(plugin.path))) return reply.code(404).send(errorBody("not_found"))
-    if (!(await pluginGrantedToDevice(plugin.id, device.id))) {
+    const module = await prisma.moduleArtifact.findUnique({ where: { id } })
+    if (!module) return reply.code(404).send(errorBody("not_found"))
+    if (module.revokedAt)
+      return reply.code(410).send(errorBody("module_revoked"))
+    if (!module.enabled)
+      return reply.code(403).send(errorBody("module_disabled"))
+    if (!(await moduleGrantedToDevice(module.id, device.id))) {
       return reply.code(403).send(errorBody("grant_denied"))
     }
-    if (plugin.platform && plugin.platform !== device.platform) {
+    if (module.platform !== device.platform)
       return reply.code(409).send(errorBody("platform_mismatch"))
-    }
-    if (plugin.arch && plugin.arch !== device.arch) {
+    if (module.arch !== device.arch)
       return reply.code(409).send(errorBody("arch_mismatch"))
+    if (!verifyStoredModule(module))
+      return reply.code(409).send(errorBody("module_signature_invalid"))
+    let stat
+    try {
+      stat = await fsp.stat(module.path)
+    } catch {
+      return reply.code(404).send(errorBody("artifact_missing"))
+    }
+    if (!stat.isFile() || stat.size !== module.size) {
+      return reply.code(409).send(errorBody("artifact_size_mismatch"))
+    }
+    let argumentsSchema
+    try {
+      argumentsSchema = moduleArgumentsSchemaSchema.parse(
+        JSON.parse(module.argumentsSchema) as unknown
+      )
+    } catch {
+      return reply.code(409).send(errorBody("module_arguments_schema_invalid"))
+    }
+    const exp = Math.floor(Date.now() / 1000) + 600
+    const sig = signUpdateToken(`module:${module.id}`, exp)
+    return {
+      module: {
+        id: module.id,
+        displayName: module.displayName,
+        version: module.version,
+        kind: module.kind,
+        platform: module.platform,
+        arch: module.arch,
+        sha256: module.sha256,
+        size: module.size,
+        signer: module.signer,
+        signature: module.signature,
+        publicKey: moduleSigner().publicKey,
+        entrypoint: module.entrypoint,
+        action: module.action,
+        argumentsSchema,
+        timeoutSec: module.timeoutSec,
+        maxOutputBytes: module.maxOutputBytes,
+        networkAllowed: module.networkAllowed,
+        enabled: module.enabled,
+        revoked: false,
+        downloadUrl: `${env.publicUrl}${API_PREFIX}/agent/download-module?id=${module.id}&exp=${exp}&sig=${sig}`,
+      },
+    }
+  })
+
+  app.get(`${API_PREFIX}/agent/download-module`, async (req, reply) => {
+    const device = await requireDevice(req, reply)
+    if (!device) return
+    const query = req.query as { id?: string; exp?: string; sig?: string }
+    if (!query.id || !query.exp || !query.sig)
+      return reply.code(400).send(errorBody("missing_params"))
+    if (
+      !verifyUpdateToken(`module:${query.id}`, Number(query.exp), query.sig)
+    ) {
+      return reply.code(403).send(errorBody("invalid_signature"))
+    }
+    const module = await prisma.moduleArtifact.findUnique({
+      where: { id: query.id },
+    })
+    if (!module || !(await pathExists(module.path)))
+      return reply.code(404).send(errorBody("not_found"))
+    if (module.revokedAt)
+      return reply.code(410).send(errorBody("module_revoked"))
+    if (!module.enabled)
+      return reply.code(403).send(errorBody("module_disabled"))
+    if (!(await moduleGrantedToDevice(module.id, device.id))) {
+      return reply.code(403).send(errorBody("grant_denied"))
+    }
+    if (module.platform !== device.platform)
+      return reply.code(409).send(errorBody("platform_mismatch"))
+    if (module.arch !== device.arch)
+      return reply.code(409).send(errorBody("arch_mismatch"))
+    if (!verifyStoredModule(module))
+      return reply.code(409).send(errorBody("module_signature_invalid"))
+    const stat = await fsp.stat(module.path)
+    if (!stat.isFile() || stat.size !== module.size) {
+      return reply.code(409).send(errorBody("artifact_size_mismatch"))
     }
     reply.header("content-type", "application/octet-stream")
-    reply.header("content-disposition", `attachment; filename="${plugin.id}"`)
-    return reply.send(fs.createReadStream(plugin.path))
+    reply.header(
+      "content-disposition",
+      `attachment; filename="${module.entrypoint}"`
+    )
+    return reply.send(fs.createReadStream(module.path))
   })
 }

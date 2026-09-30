@@ -17,6 +17,8 @@ The Next.js app proxies `/api` and `/ws` to the API. Admin routes require the op
 
 `startJobs` in `apps/api/src/app.ts` starts the cron loop: offline detection, stuck commands, notification flush, and `runPlatformJobs` (rules, automations, script schedules, metric prune, scan reconcile, daily inventory). There is not a second worker process.
 
+`run_module` is a narrower command path: `/admin/modules/:id/runs` checks enabled/revoked state, signature, device grant, target, and arguments before inserting commands pinned to the current signature. The agent repeats those checks and runs EXEs as bounded child processes. Cancelling a module command also sends `command_cancel` on `/agent-ws`. See [Safe module library](modules.md).
+
 ## Scans
 
 `POST /api/v1/admin/scans` checks `authorizeTarget` / `authorizeURL` against the in-memory scan scope, writes `Scan`, audits `scan_start`, and queues `network_scan`, `nuclei_scan`, or `host_posture`. That scope is the database copy when Configuration has been read or saved, otherwise `config/scan-scope.yaml`. The agent checks its own copy of the scope again before exec. When the command reaches a terminal status, `finishScan` upserts `Finding` rows and audits `scan_end`. A job also finalizes scans whose command already finished if the API missed the first write.

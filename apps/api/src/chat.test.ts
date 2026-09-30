@@ -64,6 +64,6 @@ test("stored tool calls and copilot allowlist", () => {
   assert.equal(parseStoredToolCalls("nope").length, 0)
   assert.equal(isCopilotCommandType("preview_file"), true)
   assert.equal(isCopilotCommandType("delete_file"), false)
-  assert.equal(copilotToolNeedsConfirm("run_plugin"), true)
+  assert.equal(copilotToolNeedsConfirm("run_plugin"), false)
   assert.equal(copilotToolNeedsConfirm("search_files"), false)
 })

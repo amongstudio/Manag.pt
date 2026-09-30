@@ -174,7 +174,7 @@ HTTP long-poll is the fallback. The agent prefers:
 
 - **Agent WebSocket** (`/agent-ws`) — command push, heartbeats, file chunks, screenshots. Ping ~45s, stale after ~90s.
 - **WebRTC remote desktop** — gated by `enable_webrtc` (default **off**). Pion starts only on an SDP offer. Offer/answer and input ride the WS or an E2E envelope. Windows H.264 uses Baseline fmtp as above; JPEG datachannel is the automatic fallback.
-- **Plugins** — gated by `enable_plugins`. `go run` for `go_source` happens only when `run_plugin` runs. The helper/watchdog never executes plugins.
+- **Modules** — `enable_plugins` remains the backward-compatible policy switch for `run_module`. Approved EXEs run as verified child processes; DLL hosting and legacy `run_plugin` are disabled. The helper/watchdog never executes modules.
 - **LAN peer files** — dest may listen on `lanPort` (17891) after an operator ticket (`peer_listen`) for ~20s. A **persistent** mTLS listener on **17891** is started **only when `mesh.enabled`** (enrollment certs, mDNS `_mnag._tcp`, UDP beacon). Discovery and WAN ICE/TURN between agents are gated the same way. Allowlisted `cmd` on the mesh uses `commands.Handle`; unsigned LAN JSON and plugin blob push are refused. Without mesh, 17891 is not always-on.
 
 `make dist` keeps full features. `make dist-lite` (`-tags lite`) stubs WebRTC/desktop.
@@ -200,7 +200,7 @@ Server-issued `POST /api/v1/agent/ws-challenge` nonces are required before the W
 | `status_port` | `17890` | Local `/status` (`data_dir/status.token` for the helper; tray may omit the header) |
 | `lightweight` | `true` | Kept in YAML / `agentConfig`; heartbeats are presence-only regardless |
 | `enable_gpu` / `enable_temps` | off | Kept in YAML; not sent on heartbeats |
-| `enable_plugins` | on | Allow `run_plugin` |
+| `enable_plugins` | on | Backward-compatible switch allowing approved `run_module` execution |
 | `enable_screenshot` | on | Watch / capture (macOS agent build is a stub) |
 | `enable_webrtc` | off | Remote desktop |
 

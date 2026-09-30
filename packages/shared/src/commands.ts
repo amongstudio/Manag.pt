@@ -22,6 +22,7 @@ export const COMMAND_TYPES = [
   "stop_watch",
   "update_agent",
   "run_plugin",
+  "run_module",
   "get_services",
   "start_service",
   "stop_service",
@@ -86,6 +87,7 @@ export const DESTRUCTIVE_COMMANDS = new Set<CommandType>([
   "delete_file",
   "uninstall_app",
   "run_plugin",
+  "run_module",
   "start_service",
   "stop_service",
   "restart_service",
@@ -141,7 +143,12 @@ export function isPeerCommandType(type: string): type is PeerCommandType {
 }
 
 export function isComposerCommandType(type: string): type is CommandType {
-  return (COMMAND_TYPES as readonly string[]).includes(type) && !isPeerCommandType(type)
+  return (
+    (COMMAND_TYPES as readonly string[]).includes(type) &&
+    !isPeerCommandType(type) &&
+    type !== "run_plugin" &&
+    type !== "run_module"
+  )
 }
 
 export const DEVICE_STATUS = ["online", "offline"] as const

@@ -19,7 +19,6 @@ export const COPILOT_COMMAND_TYPES = [
   "get_smb",
   "smb_list",
   "run_script",
-  "run_plugin",
   "preview_file",
   "search_files",
 ] as const satisfies readonly CommandType[]
@@ -33,7 +32,9 @@ export function isCopilotCommandType(type: string): type is CopilotCommandType {
 }
 
 export function copilotToolNeedsConfirm(type: string): boolean {
-  return isCopilotCommandType(type) && DESTRUCTIVE_COMMANDS.has(type as CommandType)
+  return (
+    isCopilotCommandType(type) && DESTRUCTIVE_COMMANDS.has(type as CommandType)
+  )
 }
 
 export const CHAT_TOOL_STATUS = [

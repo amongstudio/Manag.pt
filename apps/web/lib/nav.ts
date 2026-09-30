@@ -23,7 +23,7 @@ export const APP_NAV: Array<{ href: string; label: string; icon: LucideIcon }> =
   { href: "/alerts", label: "Alerts", icon: BellIcon },
   { href: "/inventory", label: "Inventory", icon: BoxesIcon },
   { href: "/security", label: "Security", icon: ShieldIcon },
-  { href: "/plugins", label: "Plugins", icon: PuzzleIcon },
+  { href: "/modules", label: "Modules", icon: PuzzleIcon },
   { href: "/builder", label: "Builder", icon: PackageIcon },
   { href: "/logs", label: "Logs", icon: FileTextIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },

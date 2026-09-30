@@ -91,8 +91,6 @@ function defaultPayload(type: CommandType): Record<string, unknown> {
       return { fileId: "", dest: "" }
     case "start_watch":
       return { durationMin: 60 }
-    case "run_plugin":
-      return { pluginId: "", args: [] as string[] }
     case "get_services":
       return {}
     case "start_service":
@@ -797,35 +795,6 @@ function TypedFields({
           onValueChange={(durationMin) => set("durationMin", durationMin)}
         />
       </Field>
-    )
-  }
-
-  if (type === "run_plugin") {
-    const args = Array.isArray(payload.args) ? (payload.args as string[]).join("\n") : asString(payload.args)
-    return (
-      <>
-        <Field>
-          <FieldLabel htmlFor="f-plug">Plugin id</FieldLabel>
-          <Input id="f-plug" value={asString(payload.pluginId)} onChange={(e) => set("pluginId", e.target.value)} />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="f-args">Args (one per line)</FieldLabel>
-          <Textarea
-            id="f-args"
-            rows={4}
-            value={args}
-            onChange={(e) =>
-              set(
-                "args",
-                e.target.value
-                  .split("\n")
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-              )
-            }
-          />
-        </Field>
-      </>
     )
   }
 

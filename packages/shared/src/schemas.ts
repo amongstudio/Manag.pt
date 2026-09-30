@@ -3,6 +3,7 @@ import { z } from "zod"
 import { COMMAND_TYPES, LOG_LEVELS, PLUGIN_RUNTIMES, type CommandType } from "./commands.ts"
 import { MESH_FORWARD_KEY, PEER_LAN_ADDRS_MAX } from "./constants.ts"
 import { meshPolicySchema } from "./mesh.ts"
+import { runModulePayloadSchema } from "./modules.ts"
 import {
   COMMAND_RESULT_MAX_BYTES,
   HEARTBEAT_EXTRAS_MAX_BYTES,
@@ -334,6 +335,7 @@ export const commandPayloadSchemas = {
   delete_file: z.object({ path: commandPathSchema }),
   start_watch: z.object({ durationMin: z.number().min(1).max(MAX_WATCH_DURATION_MIN).optional() }),
   run_plugin: runPluginPayloadSchema,
+  run_module: runModulePayloadSchema,
   get_services: z.object({ query: z.string().max(256).optional() }),
   start_service: z.object({ name: serviceNameSchema }),
   stop_service: z.object({ name: serviceNameSchema }),

@@ -33,6 +33,7 @@ type Handlers struct {
 	OnE2E             func(payload json.RawMessage)
 	OnFileChunk       func(header wsprotocol.FileChunk, payload []byte)
 	OnShell           func(typ string, payload json.RawMessage, bin []byte)
+	OnCommandCancel   func(commandID string)
 }
 
 type Client struct {
@@ -384,6 +385,14 @@ func (c *Client) readLoop(conn *websocket.Conn, stop <-chan struct{}) error {
 			}
 			if queued {
 				_ = c.writeJSON(wsprotocol.CommandAck{Type: wsprotocol.TypeCommandAck, ID: frame.ID})
+			}
+		case wsprotocol.TypeCommandCancel:
+			var frame wsprotocol.CommandCancel
+			if err := json.Unmarshal(data, &frame); err != nil {
+				continue
+			}
+			if c.handlers.OnCommandCancel != nil && frame.ID != "" {
+				c.handlers.OnCommandCancel(frame.ID)
 			}
 		case wsprotocol.TypeWebrtcSignal:
 			var frame wsprotocol.WebrtcSignal

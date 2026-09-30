@@ -91,7 +91,7 @@ OpenAI-compatible settings live in the app Settings JSON: `llm.baseUrl`, `llm.ap
 - `GET /api/v1/admin/devices/:id/chats` — last 50 threads
 - `POST /api/v1/admin/devices/:id/chats` — `{ title? }` (default `"New chat"`)
 - `GET /api/v1/admin/devices/:id/chats/:threadId` — thread + messages (user / assistant / tool; `commandId` when a command was queued)
-- `POST /api/v1/admin/devices/:id/chats/:threadId/messages` — `{ content }` (max 8000). Streams tokens on Socket.io `chat_delta`. Tools are existing types only (`get_processes`, `get_files`, `get_services`, `get_registry`, `get_adapters`, `get_ports`, `get_firewall`, `get_event_log`, `get_windows_update`, `get_admin_center`, `get_tasks`, `get_defender`, `get_bitlocker`, `get_capabilities`, `run_script`, `run_plugin`, `preview_file`, `search_files`). Destructive `run_plugin` waits for confirm. Errors: `llm_not_configured`, `busy` (409), `rate_limited` (429), `pending_confirm` (409)
+- `POST /api/v1/admin/devices/:id/chats/:threadId/messages` — `{ content }` (max 8000). Streams tokens on Socket.io `chat_delta`. Tools are existing inspection types plus `run_script`, `preview_file`, and `search_files`; module execution is excluded. Errors: `llm_not_configured`, `busy` (409), `rate_limited` (429), `pending_confirm` (409)
 - `POST /api/v1/admin/devices/:id/chats/:threadId/confirm` — `{ toolCallId, confirmed }`
 
 Migrations: **`0012_chat_threads`** (`ChatThread`, `ChatMessage`).

@@ -33,6 +33,7 @@ model Device {
   files         FileInfo[]
   notifications Notification[]
   pluginGrants  PluginDeviceGrant[]
+  moduleGrants  ModuleDeviceGrant[]
   chats         ChatThread[]
   credentials   DeviceCredential[]
   scriptRuns    ScriptRun[]
@@ -232,6 +233,46 @@ model PluginDeviceGrant {
   device   Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@id([pluginId, deviceId])
+}
+
+model ModuleArtifact {
+  id              String   @id
+  displayName     String
+  version         String
+  kind            String
+  platform        String
+  arch            String
+  sha256          String
+  size            Int
+  signer          String
+  signature       String
+  path            String
+  entrypoint      String
+  action          String
+  argumentsSchema String   @default("[]")
+  timeoutSec      Int      @default(60)
+  maxOutputBytes  Int      @default(65536)
+  networkAllowed  Boolean  @default(false)
+  enabled         Boolean  @default(false)
+  allDevices      Boolean  @default(false)
+  revokedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  grants ModuleDeviceGrant[]
+
+  @@index([enabled, revokedAt, platform, arch])
+  @@index([createdAt])
+}
+
+model ModuleDeviceGrant {
+  moduleId String
+  deviceId String
+  module   ModuleArtifact @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  device   Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([moduleId, deviceId])
+  @@index([deviceId])
 }
 
 model CommandTemplate {

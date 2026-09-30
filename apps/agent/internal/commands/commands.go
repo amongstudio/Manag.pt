@@ -18,10 +18,10 @@ import (
 	"github.com/pc-manager/agent/internal/filemanager"
 	"github.com/pc-manager/agent/internal/helpercfg"
 	"github.com/pc-manager/agent/internal/inventory"
+	"github.com/pc-manager/agent/internal/moduletool"
 	"github.com/pc-manager/agent/internal/monitor"
 	"github.com/pc-manager/agent/internal/netwin"
 	"github.com/pc-manager/agent/internal/peerfile"
-	"github.com/pc-manager/agent/internal/plugin"
 	"github.com/pc-manager/agent/internal/procutil"
 	"github.com/pc-manager/agent/internal/scan"
 	"github.com/pc-manager/agent/internal/screenshot"
@@ -50,6 +50,7 @@ type Deps struct {
 	Version       string
 	DataDir       string
 	EnablePlugins bool
+	CommandID     string
 	Progress      func(int)
 	Transfer      interface {
 		Upload(localPath, remotePath string, progress func(int)) error
@@ -69,7 +70,7 @@ func Classify(typ string) Class {
 	switch typ {
 	case "restart", "shutdown", "kill_switch", "update_agent":
 		return ClassExclusive
-	case "install_app", "uninstall_app", "run_script", "run_plugin", "upload_file", "download_file", "search_files", "copy_file", "get_services", "start_service", "stop_service", "restart_service", "get_adapters", "get_ports", "get_firewall", "set_firewall_rule", "delete_firewall_rule", "peer_listen", "peer_offer", "get_event_log", "get_windows_update", "install_windows_update", "start_quick_assist", "get_tasks", "set_task_enabled", "get_defender", "set_defender", "start_defender_scan", "update_defender", "defender_action", "cancel_defender_scan", "get_bitlocker", "set_bitlocker", "get_capabilities", "install_capability", "get_smb", "smb_list", "smb_connect", "smb_disconnect", "get_credentials", "set_credential", "delete_credential", "generate_credential", "backup_credentials", "restore_credentials", "collect_inventory", "network_scan", "nuclei_scan", "host_posture":
+	case "install_app", "uninstall_app", "run_script", "run_plugin", "run_module", "upload_file", "download_file", "search_files", "copy_file", "get_services", "start_service", "stop_service", "restart_service", "get_adapters", "get_ports", "get_firewall", "set_firewall_rule", "delete_firewall_rule", "peer_listen", "peer_offer", "get_event_log", "get_windows_update", "install_windows_update", "start_quick_assist", "get_tasks", "set_task_enabled", "get_defender", "set_defender", "start_defender_scan", "update_defender", "defender_action", "cancel_defender_scan", "get_bitlocker", "set_bitlocker", "get_capabilities", "install_capability", "get_smb", "smb_list", "smb_connect", "smb_disconnect", "get_credentials", "set_credential", "delete_credential", "generate_credential", "backup_credentials", "restore_credentials", "collect_inventory", "network_scan", "nuclei_scan", "host_posture":
 		return ClassLong
 	default:
 		return ClassFast
@@ -93,6 +94,14 @@ func PowerAction(typ string) error {
 
 func RestartHost() error {
 	return restartOS()
+}
+
+func Cancel(commandID string) {
+	moduletool.Cancel(commandID)
+}
+
+func IsCancelled(err error) bool {
+	return errors.Is(err, moduletool.ErrCancelled)
 }
 
 var (
@@ -143,6 +152,22 @@ func handleService(action string, payload json.RawMessage) (any, error) {
 	}
 }
 
+func stringArgs(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			return nil
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
 func Handle(typ string, payload json.RawMessage, deps Deps) (any, error) {
 	var body map[string]any
 	_ = json.Unmarshal(payload, &body)
@@ -167,17 +192,22 @@ func Handle(typ string, payload json.RawMessage, deps Deps) (any, error) {
 		reportProgress(deps, 0)
 		return runScriptBody(body)
 	case "run_plugin":
+		return nil, errors.New("legacy plugins disabled; use run_module")
+	case "run_module":
 		if !deps.EnablePlugins {
-			return nil, errors.New("plugins disabled")
+			return nil, errors.New("modules disabled by agent policy")
 		}
 		reportProgress(deps, 0)
-		pluginID, _ := body["pluginId"].(string)
-		return plugin.Run(plugin.Request{
-			PluginID: pluginID,
-			Args:     plugin.ArgsFrom(body["args"]),
-			Client:   deps.Client,
-			DataDir:  deps.DataDir,
-			Progress: deps.Progress,
+		moduleID, _ := body["moduleId"].(string)
+		expectedSignature, _ := body["expectedSignature"].(string)
+		return moduletool.Run(moduletool.Request{
+			CommandID:         deps.CommandID,
+			ModuleID:          moduleID,
+			ExpectedSignature: expectedSignature,
+			Args:              stringArgs(body["args"]),
+			Client:            deps.Client,
+			DataDir:           deps.DataDir,
+			Progress:          deps.Progress,
 		})
 	case "get_processes":
 		return monitor.TopProcesses(), nil

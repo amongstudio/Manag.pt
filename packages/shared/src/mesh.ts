@@ -38,6 +38,7 @@ export const MESH_DEFAULT_COMMANDS = [
 /** Never accepted from a peer, even if listed in `allowCommands`. */
 export const MESH_NEVER_COMMANDS = [
   "run_plugin",
+  "run_module",
   "peer_listen",
   "peer_offer",
   "update_agent",
@@ -57,7 +58,10 @@ export const MESH_NEVER_COMMANDS = [
 const NEVER = new Set<string>(MESH_NEVER_COMMANDS)
 const DEFAULTS = new Set<string>(MESH_DEFAULT_COMMANDS)
 
-export function meshCommandAllowed(type: string, allowCommands: string[] | undefined): boolean {
+export function meshCommandAllowed(
+  type: string,
+  allowCommands: string[] | undefined
+): boolean {
   const typ = type.trim()
   if (!typ || NEVER.has(typ)) return false
   if (DEFAULTS.has(typ)) return true

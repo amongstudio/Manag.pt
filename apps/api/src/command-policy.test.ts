@@ -5,6 +5,7 @@ import { COMMAND_TIMEOUT_GRACE_MS } from "@workspace/shared"
 
 import {
   isDestructiveCommand,
+  moduleIdFromPayload,
   pendingDestructiveExpired,
   pluginIdFromPayload,
   runningCommandTimeoutMs,
@@ -52,12 +53,19 @@ test("pending destructive TTL uses commandTimeoutMin", () => {
   assert.equal(isDestructiveCommand("set_bitlocker"), true)
   assert.equal(isDestructiveCommand("cancel_defender_scan"), true)
   assert.equal(isDestructiveCommand("defender_action"), true)
+  assert.equal(isDestructiveCommand("run_module"), true)
 })
 
 test("pluginIdFromPayload reads pluginId and ignores bad JSON", () => {
   assert.equal(pluginIdFromPayload('{"pluginId":"plug-1","args":[]}'), "plug-1")
   assert.equal(pluginIdFromPayload("{"), null)
   assert.equal(pluginIdFromPayload("{}"), null)
+})
+
+test("moduleIdFromPayload reads moduleId and ignores bad JSON", () => {
+  assert.equal(moduleIdFromPayload('{"moduleId":"tool-1"}'), "tool-1")
+  assert.equal(moduleIdFromPayload("{"), null)
+  assert.equal(moduleIdFromPayload("{}"), null)
 })
 
 test("allDevices grant allows any device without a Device FK row", () => {

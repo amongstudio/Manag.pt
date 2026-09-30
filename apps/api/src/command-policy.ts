@@ -30,6 +30,15 @@ export function pluginIdFromPayload(payload: string): string | null {
   }
 }
 
+export function moduleIdFromPayload(payload: string): string | null {
+  try {
+    const parsed = JSON.parse(payload) as { moduleId?: unknown }
+    return typeof parsed.moduleId === "string" && parsed.moduleId ? parsed.moduleId : null
+  } catch {
+    return null
+  }
+}
+
 export type PluginGrantSource = {
   allDevices: boolean
   grants: Array<{ deviceId: string }>

@@ -7,7 +7,7 @@ import cron from "node-cron"
 import { DESTRUCTIVE_COMMANDS, WS_EVENTS } from "@workspace/shared"
 import { prisma } from "@workspace/db"
 
-import { pluginIdFromPayload, runningCommandTimeoutMs } from "./command-policy.js"
+import { moduleIdFromPayload, pluginIdFromPayload, runningCommandTimeoutMs } from "./command-policy.js"
 import { env, dataPath } from "./env.js"
 import { emitFleet } from "./io-emit.js"
 import { enqueueAlert, flushNotifications } from "./notify.js"
@@ -37,12 +37,34 @@ async function timeoutStuckCommands(app: FastifyInstance): Promise<void> {
     ? await prisma.plugin.findMany({ where: { id: { in: pluginIds } }, select: { id: true, timeoutSec: true } })
     : []
   const timeoutByPlugin = new Map(plugins.map((plugin) => [plugin.id, plugin.timeoutSec]))
+  const moduleIds = [
+    ...new Set(
+      candidates
+        .filter((command) => command.type === "run_module")
+        .map((command) => moduleIdFromPayload(command.payload))
+        .filter((id): id is string => Boolean(id))
+    ),
+  ]
+  const modules = moduleIds.length
+    ? await prisma.moduleArtifact.findMany({
+        where: { id: { in: moduleIds } },
+        select: { id: true, timeoutSec: true },
+      })
+    : []
+  const timeoutByModule = new Map(modules.map((module) => [module.id, module.timeoutSec]))
   const now = Date.now()
   const stuck = candidates.filter((command) => {
-    if (command.type !== "run_plugin") return true
-    const pluginId = pluginIdFromPayload(command.payload)
-    const pluginTimeoutSec = pluginId ? timeoutByPlugin.get(pluginId) : undefined
-    const deadline = command.updatedAt.getTime() + runningCommandTimeoutMs(minutes, pluginTimeoutSec)
+    let artifactTimeoutSec: number | undefined
+    if (command.type === "run_plugin") {
+      const pluginId = pluginIdFromPayload(command.payload)
+      artifactTimeoutSec = pluginId ? timeoutByPlugin.get(pluginId) : undefined
+    } else if (command.type === "run_module") {
+      const moduleId = moduleIdFromPayload(command.payload)
+      artifactTimeoutSec = moduleId ? timeoutByModule.get(moduleId) : undefined
+    } else {
+      return true
+    }
+    const deadline = command.updatedAt.getTime() + runningCommandTimeoutMs(minutes, artifactTimeoutSec)
     return now >= deadline
   })
   if (stuck.length === 0) return

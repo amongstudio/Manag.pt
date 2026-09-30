@@ -16,6 +16,10 @@ import {
   isPeerCommandType,
   MAX_CREATE_COMMAND_DEVICES,
   MAX_UPLOAD_BYTES,
+  moduleArgumentsSchemaSchema,
+  moduleRegistrationSchema,
+  runModulePayloadSchema,
+  validateModuleArguments,
   WEBRTC_ERROR,
   h264FallbackLabel,
   WS_EVENTS,
@@ -71,6 +75,7 @@ test("unused stat_batch and plugin_progress protocol is gone", () => {
   assert.equal("stat_batch" in AGENT_WS_TYPE, false)
   assert.equal("plugin_progress" in AGENT_WS_TYPE, false)
   assert.equal("STAT_UPDATE" in WS_EVENTS, false)
+  assert.equal(AGENT_WS_TYPE.command_cancel, "command_cancel")
 })
 
 test("heartbeat accepts processes null", () => {
@@ -137,6 +142,53 @@ test("createCommandSchema accepts optional forwardTo", () => {
   assert.equal(parsed.forwardTo, "dev-b")
 })
 
+test("module manifests and run payloads are strictly bounded", () => {
+  const registration = moduleRegistrationSchema.parse({
+    id: "approved-tool",
+    displayName: "Approved tool",
+    version: "1.0.0",
+    kind: "exe",
+    platform: "windows",
+    arch: "amd64",
+    entrypoint: "approved-tool.exe",
+    action: "inspect",
+    argumentsSchema: [
+      { name: "count", type: "integer", required: true, maxLength: 3 },
+      { name: "mode", type: "string", choices: ["safe", "audit"], maxLength: 8 },
+    ],
+    timeoutSec: 30,
+    maxOutputBytes: 65_536,
+  })
+  assert.equal(registration.argumentsSchema[0]?.required, true)
+  assert.equal(moduleRegistrationSchema.safeParse({ ...registration, displayName: "bad\nname" }).success, false)
+  assert.equal(
+    moduleArgumentsSchemaSchema.safeParse([
+      { name: "optional", type: "string" },
+      { name: "required", type: "string", required: true },
+    ]).success,
+    false
+  )
+  assert.deepEqual(validateModuleArguments(registration.argumentsSchema, ["12", "safe"]), { ok: true })
+  assert.equal(validateModuleArguments(registration.argumentsSchema, ["01"]).ok, false)
+  assert.equal(validateModuleArguments(registration.argumentsSchema, ["12", "unsafe"]).ok, false)
+  assert.equal(
+    runModulePayloadSchema.safeParse({
+      moduleId: "approved-tool",
+      expectedSignature: "A".repeat(86) + "==",
+      args: ["12"],
+    }).success,
+    true
+  )
+  assert.equal(
+    runModulePayloadSchema.safeParse({
+      moduleId: "approved-tool",
+      expectedSignature: "not-a-signature",
+      args: [],
+    }).success,
+    false
+  )
+})
+
 test("validateCommandPayload keeps meshForward after stripping unknown keys", () => {
   const checked = validateCommandPayload("get_processes", { meshForward: "dev-b", extra: 1 })
   assert.equal(checked.ok, true)
@@ -173,7 +225,7 @@ test("settings patch accepts OpenAI-compatible llm section", () => {
   )
 })
 
-test("copilot tools are existing command types and only run_plugin confirms", () => {
+test("copilot tools exclude artifact execution", () => {
   assert.equal(COPILOT_COMMAND_TYPES.every((t) => (COMMAND_TYPES as readonly string[]).includes(t)), true)
   assert.equal(isCopilotCommandType("get_files"), true)
   assert.equal(isCopilotCommandType("get_adapters"), true)
@@ -190,13 +242,17 @@ test("copilot tools are existing command types and only run_plugin confirms", ()
   assert.equal(isCopilotCommandType("start_quick_assist"), false)
   assert.equal(isCopilotCommandType("set_firewall_rule"), false)
   assert.equal(isCopilotCommandType("kill_switch"), false)
-  assert.equal(copilotToolNeedsConfirm("run_plugin"), true)
+  assert.equal(isCopilotCommandType("run_plugin"), false)
+  assert.equal(isCopilotCommandType("run_module"), false)
+  assert.equal(copilotToolNeedsConfirm("run_plugin"), false)
   assert.equal(copilotToolNeedsConfirm("run_script"), false)
   assert.equal(copilotToolNeedsConfirm("get_processes"), false)
   assert.equal(WS_EVENTS.CHAT_DELTA, "chat_delta")
   assert.equal(isPeerCommandType("peer_offer"), true)
   assert.equal(isPeerCommandType("peer_listen"), true)
   assert.equal(isComposerCommandType("peer_offer"), false)
+  assert.equal(isComposerCommandType("run_plugin"), false)
+  assert.equal(isComposerCommandType("run_module"), false)
   assert.equal(isComposerCommandType("get_files"), true)
   assert.equal(isCopilotCommandType("peer_copy" as string), false)
   assert.equal(isCopilotCommandType("peer_offer"), false)
