@@ -882,26 +882,23 @@ func runNetworkScan(body map[string]any) (any, error) {
 func runNucleiScan(body map[string]any) (any, error) {
 	target, _ := body["target"].(string)
 	scope := scan.LoadScope(scanScopePath())
-	host := target
-	if strings.Contains(target, "://") {
-		host = target
-		if i := strings.Index(host, "://"); i >= 0 {
-			host = host[i+3:]
-		}
-		host = strings.Trim(host, "[]")
-		if slash := strings.IndexAny(host, "/:"); slash >= 0 {
-			host = host[:slash]
-		}
+	host, err := scan.TargetHost(target)
+	if err != nil {
+		return map[string]string{"error": "target_refused"}, errors.New("target_refused")
 	}
 	decision := scan.AuthorizeTarget(host, scope)
 	if !decision.OK {
 		return map[string]string{"error": decision.Error}, errors.New(decision.Error)
 	}
+	scanURL, err := scan.NucleiURL(target, decision.Target)
+	if err != nil {
+		return map[string]string{"error": "target_refused"}, errors.New("target_refused")
+	}
 	if !scan.NucleiAvailable() {
 		return map[string]string{"error": "nuclei_unavailable"}, errors.New("nuclei_unavailable")
 	}
 	minutes := scope.ScanTimeoutMinutes
-	findings, err := scan.RunNuclei(context.Background(), target, time.Duration(minutes)*time.Minute)
+	findings, err := scan.RunNuclei(context.Background(), scanURL, time.Duration(minutes)*time.Minute)
 	if err != nil {
 		return map[string]string{"error": err.Error()}, err
 	}

@@ -3,7 +3,8 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 
 import { authorizeTarget, parseScanScope } from "./scan-scope.ts"
-import { cacheFresh, findingsFromNmap, findingsFromNuclei, mergeStatus, versionLess } from "./findings-lib.ts"
+import { cacheFresh, findingsFromNmap, findingsFromNuclei, mergeStatus, nextManualStatus, versionLess } from "./findings-lib.ts"
+import { ruleDelivery } from "./rules.ts"
 import { parseSoftwareRules, postureFindings } from "./posture-lib.ts"
 
 const scopeText = fs.readFileSync(new URL("../../../config/scan-scope.yaml", import.meta.url), "utf8")
@@ -23,6 +24,9 @@ test("authorizeTarget refuses public, excluded, and lab LAN", () => {
   assert.equal(authorizeTarget("192.168.1.20", owned).ok, true)
   assert.equal(authorizeTarget("192.168.1.10", owned).ok, false)
   assert.equal(authorizeTarget("1.2.3.4", { ...scope, labMode: false, authorizedNetworks: [] }).ok, false)
+  const wide = { ...scope, labMode: false, authorizedNetworks: ["192.168.0.0/16"], excludedHosts: ["192.168.1.0/24"] }
+  assert.equal(authorizeTarget("192.168.1.10", wide).ok, false)
+  assert.equal(authorizeTarget("http://[::1]/health", { ...scope, labMode: true }).ok, false)
 })
 
 test("nmap and nuclei fixtures become findings", () => {
@@ -50,6 +54,28 @@ test("nmap and nuclei fixtures become findings", () => {
   })
   assert.equal(nuclei.length, 1)
   assert.match(nuclei[0]!.evidence, /tls-version/)
+})
+
+test("finding actions cannot skip fixed or double-send teams", () => {
+  assert.equal(nextManualStatus("open", "acknowledge"), "acknowledged")
+  assert.equal(nextManualStatus("acknowledged", "acknowledge"), null)
+  assert.equal(nextManualStatus("fixed", "accept"), null)
+  assert.equal(nextManualStatus("acknowledged", "remediate"), "remediating")
+  const same = ruleDelivery({
+    ruleTeams: "https://outlook.office.com/webhook/a",
+    ruleWebhook: "",
+    settingsTeams: "https://outlook.office.com/webhook/a",
+    settingsTeamsEnabled: true,
+  })
+  assert.equal(same.teamsURL, "")
+  const onlyRule = ruleDelivery({
+    ruleTeams: "https://outlook.office.com/webhook/b",
+    ruleWebhook: "https://example.com/hook",
+    settingsTeams: "",
+    settingsTeamsEnabled: false,
+  })
+  assert.equal(onlyRule.teamsURL, "https://outlook.office.com/webhook/b")
+  assert.equal(onlyRule.webhook, "https://example.com/hook")
 })
 
 test("repeat findings keep acknowledgement and missing ones close", () => {

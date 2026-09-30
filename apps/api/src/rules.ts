@@ -145,6 +145,22 @@ export function parseRules(text: string): AlertRule[] {
   return out
 }
 
+/** Avoid sending the same Teams or webhook URL twice in one evaluation. */
+export function ruleDelivery(input: {
+  ruleTeams: string
+  ruleWebhook: string
+  settingsTeams?: string
+  settingsTeamsEnabled: boolean
+}): { webhook: string; teamsURL: string } {
+  const settings = input.settingsTeamsEnabled && (input.settingsTeams ?? "").startsWith("https://") ? input.settingsTeams! : ""
+  const ruleTeams = input.ruleTeams.startsWith("https://") ? input.ruleTeams : ""
+  const webhook = input.ruleWebhook.startsWith("https://") ? input.ruleWebhook : ""
+  return {
+    webhook,
+    teamsURL: ruleTeams && ruleTeams !== settings ? ruleTeams : "",
+  }
+}
+
 export function rulesPath(): string {
   const fromEnv = process.env.RULES_PATH?.trim()
   if (fromEnv) return fromEnv

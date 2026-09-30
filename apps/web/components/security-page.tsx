@@ -42,6 +42,8 @@ export function SecurityPage() {
   const [deviceId, setDeviceId] = React.useState("")
   const [target, setTarget] = React.useState("127.0.0.1")
   const [kind, setKind] = React.useState("network_scan")
+  const [scriptId, setScriptId] = React.useState("")
+  const scripts = useQuery({ queryKey: ["scripts"], queryFn: () => api<{ scripts: Array<{ id: string; name: string }> }>("/api/v1/admin/scripts") })
   const start = useMutation({
     mutationFn: () =>
       api("/api/v1/admin/scans", { method: "POST", body: JSON.stringify({ deviceId, kind, target: kind === "host_posture" ? "" : target }) }),
@@ -116,6 +118,14 @@ export function SecurityPage() {
         <Input placeholder="Status" value={status} onChange={(e) => setStatus(e.target.value)} className="max-w-[10rem]" />
         <Input placeholder="Port" value={port} onChange={(e) => setPort(e.target.value)} className="max-w-[8rem]" />
         <Input placeholder="Service" value={service} onChange={(e) => setService(e.target.value)} className="max-w-[10rem]" />
+        <select className="h-9 rounded-md border bg-background px-2 text-sm" value={scriptId} onChange={(e) => setScriptId(e.target.value)}>
+          <option value="">Remediation script</option>
+          {(scripts.data?.scripts ?? []).map((script) => (
+            <option key={script.id} value={script.id}>
+              {script.name}
+            </option>
+          ))}
+        </select>
       </div>
       <Table>
         <TableHeader>
@@ -152,6 +162,19 @@ export function SecurityPage() {
                 </Button>
                 <Button size="sm" variant="outline" disabled={!row.scriptId} onClick={() => act.mutate({ id: row.id, action: "remediate" })}>
                   Remediate
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!scriptId}
+                  onClick={() =>
+                    api(`/api/v1/admin/findings/${row.id}/link`, { method: "POST", body: JSON.stringify({ scriptId }) }).then(() => {
+                      toast.success("Script linked")
+                      void queryClient.invalidateQueries({ queryKey: ["findings"] })
+                    }).catch((error: Error) => toast.error(error.message))
+                  }
+                >
+                  Link script
                 </Button>
               </TableCell>
             </TableRow>

@@ -45,6 +45,11 @@ export function ScriptsPage() {
   const [content, setContent] = React.useState("echo hello")
   const [deviceId, setDeviceId] = React.useState("")
   const [selected, setSelected] = React.useState<string>("")
+  const [cron, setCron] = React.useState("0 * * * *")
+  const schedules = useQuery({
+    queryKey: ["script-schedules"],
+    queryFn: () => api<{ schedules: Array<{ id: string; cron: string; deviceId: string | null; script: { name: string } }> }>("/api/v1/admin/script-schedules"),
+  })
 
   const save = useMutation({
     mutationFn: () =>
@@ -67,6 +72,18 @@ export function ScriptsPage() {
     onSuccess: () => {
       toast.success("Script queued")
       void queryClient.invalidateQueries({ queryKey: ["script-runs"] })
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+  const schedule = useMutation({
+    mutationFn: () =>
+      api("/api/v1/admin/script-schedules", {
+        method: "POST",
+        body: JSON.stringify({ scriptId: selected, cron, deviceId: deviceId || null }),
+      }),
+    onSuccess: () => {
+      toast.success("Schedule saved")
+      void queryClient.invalidateQueries({ queryKey: ["script-schedules"] })
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -118,7 +135,17 @@ export function ScriptsPage() {
             <Button variant="outline" disabled={!selected || !deviceId || run.isPending} onClick={() => run.mutate()}>
               Run
             </Button>
+            <Input value={cron} onChange={(e) => setCron(e.target.value)} className="max-w-[10rem]" placeholder="0 * * * *" />
+            <Button variant="outline" disabled={!selected || schedule.isPending} onClick={() => schedule.mutate()}>
+              Schedule
+            </Button>
           </div>
+          <p className="text-xs text-muted-foreground">Cron is UTC. An empty device schedules every enrolled device (cap 200).</p>
+          {(schedules.data?.schedules ?? []).slice(0, 8).map((row) => (
+            <p key={row.id} className="text-xs text-muted-foreground">
+              {row.script.name} · {row.cron} · {row.deviceId ?? "fleet"}
+            </p>
+          ))}
         </CardContent>
       </Card>
       <Card>
