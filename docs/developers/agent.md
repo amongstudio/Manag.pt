@@ -21,6 +21,8 @@ Scan-related types:
 4. If peers must never run it, add it to `MESH_NEVER_COMMANDS` and `apps/agent/internal/mesh/policy.go` `neverCommands`.
 5. If the API must store rows from the result, extend `applyCommandEffects`.
 
+`apply_config` writes `helper.yaml` under the agent data directory via `internal/helpercfg`. The payload is watchdog options only (service name, status port, backoff, probe interval, fail threshold, max backoff, startup grace). It does not carry enrollment secrets. Optional `watchedServices` updates the agent config and saves it. The command is in `MESH_NEVER_COMMANDS`. The helper process still loads `helper.yaml` at startup, so a probe-interval change applies after the helper restarts. An explicit `startup_grace_sec: 0` is kept; omitting the field leaves the 60 second default. `HELPER_PROBE_INTERVAL_SEC`, `HELPER_FAIL_THRESHOLD`, `HELPER_MAX_BACKOFF_SEC`, and `HELPER_STARTUP_GRACE_SEC` override the file the same way `HELPER_BACKOFF_SEC` already did.
+
 `gofmt` Go changes. `go test ./...` in `apps/agent` must pass on Linux. Windows files are behind `//go:build windows`.
 
 Build: `make build` or `make dist` in `apps/agent`. See `docs/users/agent-install.md` for the installer.

@@ -10,6 +10,8 @@ import {
   PuzzleIcon,
   ScrollTextIcon,
   SettingsIcon,
+  SlidersHorizontalIcon,
+  BookOpenIcon,
   type LucideIcon,
 } from "lucide-react"
 
@@ -25,6 +27,8 @@ export const APP_NAV: Array<{ href: string; label: string; icon: LucideIcon }> =
   { href: "/builder", label: "Builder", icon: PackageIcon },
   { href: "/logs", label: "Logs", icon: FileTextIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
+  { href: "/configuration", label: "Configuration", icon: SlidersHorizontalIcon },
+  { href: "/docs", label: "Docs", icon: BookOpenIcon },
 ]
 
 export function navLabelForPath(pathname: string): string {

@@ -4,7 +4,7 @@ There is no exploit engine. The agent only runs `nmap`, `nuclei`, or `trivy` whe
 
 ## Allowlist
 
-`SECURITY_AUTHORIZATION.md` is the human record (signature lines are blank until a person signs them). The process enforces the YAML:
+`SECURITY_AUTHORIZATION.md` is the human record (signature lines are blank until a person signs them). Operators change the scope on Configuration. The process enforces that saved scope (seeded from `config/scan-scope.yaml` when the database row is empty):
 
 - `lab_mode: true` (the default, including when the key is omitted) allows only `127.0.0.1/32`, `::1`, and `lab_networks`.
 - Otherwise the target must sit inside `authorized_networks`.

@@ -19,6 +19,8 @@ The Next.js app proxies `/api` and `/ws` to the API. Admin routes require the op
 
 ## Scans
 
-`POST /api/v1/admin/scans` checks `authorizeTarget` / `authorizeURL`, writes `Scan`, audits `scan_start`, and queues `network_scan`, `nuclei_scan`, or `host_posture`. The agent checks the same YAML again before exec. When the command reaches a terminal status, `finishScan` upserts `Finding` rows and audits `scan_end`. A job also finalizes scans whose command already finished if the API missed the first write.
+`POST /api/v1/admin/scans` checks `authorizeTarget` / `authorizeURL` against the in-memory scan scope, writes `Scan`, audits `scan_start`, and queues `network_scan`, `nuclei_scan`, or `host_posture`. That scope is the database copy when Configuration has been read or saved, otherwise `config/scan-scope.yaml`. The agent checks its own copy of the scope again before exec. When the command reaches a terminal status, `finishScan` upserts `Finding` rows and audits `scan_end`. A job also finalizes scans whose command already finished if the API missed the first write.
+
+`GET` and `PUT /api/v1/admin/config/:section` are the operator path for rules, automations, scan scope, software rules, helper options, and agent intervals. Unknown keys and out-of-range numbers are rejected. Saves call `setRulesOverride`, `setAutomationsOverride`, `setScanScopeOverride`, or `setSoftwareRulesOverride`, so the job loop does not need a restart. Agent intervals go through `patchSettings`, which clears the five-second settings cache. Helper saves queue `apply_config`.
 
 Mesh peers cannot run `network_scan` or `nuclei_scan` (`MESH_NEVER_COMMANDS`).
