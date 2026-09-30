@@ -9,5 +9,3 @@ This version has breaking changes — APIs, conventions, and file structure may 
 Use the local commands in the README. Install copies `.env.example` to `.env` when `.env` is missing and migrates SQLite to `data/pcmanager.db`. The example enrollment secret is accepted only when `NODE_ENV` is not `production`.
 
 `apps/agent` requires Go 1.25 or newer. The base image ships an older toolchain, so setup installs Go 1.27 under `/usr/local/go` and links `/usr/local/bin/go` ahead of `/usr/bin/go`.
-
-Product docs live in `docs/README.md`. Deploy, rollback, SQLite lock, and scan scope are in `RUNBOOK.md`. Do not scan addresses outside `config/scan-scope.yaml`. Default lab mode allows only `127.0.0.1/32` and `::1`.
