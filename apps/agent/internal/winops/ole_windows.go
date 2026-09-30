@@ -226,23 +226,6 @@ func formatWhen(val any) string {
 	}
 }
 
-func parseCIMDate(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) < 14 {
-		if _, err := time.Parse(time.RFC3339, s); err == nil {
-			return s
-		}
-		return s
-	}
-	// yyyymmddHHMMSS.mmmmmmsUUU
-	raw := s[:14]
-	t, err := time.Parse("20060102150405", raw)
-	if err != nil || t.Year() < 2000 {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
-}
-
 func isAccessDenied(err error) bool {
 	if err == nil {
 		return false
