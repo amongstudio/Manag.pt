@@ -18,7 +18,8 @@ const HKDF_INFO = "credential-vault"
 const PREFIX = "v1:"
 
 function vaultKey(): Buffer {
-  return Buffer.from(hkdfSync("sha256", env.updateSigningSecret, HKDF_SALT, HKDF_INFO, 32))
+  const ikm = env.credentialsKey || env.updateSigningSecret
+  return Buffer.from(hkdfSync("sha256", ikm, HKDF_SALT, HKDF_INFO, 32))
 }
 
 export function encryptVaultSecret(plain: string): string {

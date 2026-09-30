@@ -82,6 +82,7 @@ import {
   TableRow,
 } from "@workspace/ui/components/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
+import { UpdateApprovals } from "@/components/update-approvals"
 import { Input } from "@workspace/ui/components/input"
 import {
   Select,
@@ -125,11 +126,24 @@ export function WindowsTools({
   const [tab, setTab] = React.useState("events")
   const [eventLogName, setEventLogName] = React.useState("System")
   const [eventLevel, setEventLevel] = React.useState("all")
+  const [eventChannel, setEventChannel] = React.useState("")
+  const [eventId, setEventId] = React.useState("")
+  const [eventSource, setEventSource] = React.useState("")
+  const [eventSince, setEventSince] = React.useState("")
+  const [eventUntil, setEventUntil] = React.useState("")
   const [updateOnline, setUpdateOnline] = React.useState(false)
   const events = useNativeList({
     deviceId,
     type: "get_event_log",
-    payload: { log: eventLogName, newest: 50, level: eventLevel },
+    payload: {
+      log: eventChannel.trim() || eventLogName,
+      newest: 50,
+      level: eventLevel,
+      ...(eventId.trim() && Number.isFinite(Number(eventId)) ? { eventId: Number(eventId) } : {}),
+      ...(eventSource.trim() ? { source: eventSource.trim() } : {}),
+      ...(eventSince ? { since: new Date(eventSince).toISOString() } : {}),
+      ...(eventUntil ? { until: new Date(eventUntil).toISOString() } : {}),
+    },
     commands,
     latestSuccessful: latestSuccessful?.get_event_log ?? null,
     online,
@@ -304,6 +318,26 @@ export function WindowsTools({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Other channel</p>
+                <Input value={eventChannel} onChange={(e) => setEventChannel(e.target.value)} placeholder="Microsoft-Windows-..." className="w-52" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Event ID</p>
+                <Input value={eventId} onChange={(e) => setEventId(e.target.value)} className="w-24" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Source</p>
+                <Input value={eventSource} onChange={(e) => setEventSource(e.target.value)} className="w-40" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">From</p>
+                <Input type="datetime-local" value={eventSince} onChange={(e) => setEventSince(e.target.value)} className="w-52" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">To</p>
+                <Input type="datetime-local" value={eventUntil} onChange={(e) => setEventUntil(e.target.value)} className="w-52" />
+              </div>
               <p className="text-xs text-muted-foreground">Refresh to apply.</p>
             </div>
             <EventTable rows={eventLog.entries} />
@@ -324,6 +358,7 @@ export function WindowsTools({
               Online search (slower). Refresh to apply.
             </label>
             <UpdateTables pending={wu.pending} installed={wu.installed} />
+            <UpdateApprovals deviceId={deviceId} />
           </NativePanel>
         </TabsContent>
         <TabsContent value="wac" className="mt-4">

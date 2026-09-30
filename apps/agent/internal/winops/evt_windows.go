@@ -74,7 +74,7 @@ func EventLog(req EventLogRequest) (*EventLogResult, error) {
 	if err != nil {
 		return nil, ErrInvalidPayload
 	}
-	query, err := windows.UTF16PtrFromString(xpathForLevel(req.Level))
+	query, err := windows.UTF16PtrFromString(xpathQuery(req))
 	if err != nil {
 		return nil, ErrInvalidPayload
 	}

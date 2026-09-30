@@ -30,6 +30,7 @@ import (
 	"github.com/pc-manager/agent/internal/lan"
 	"github.com/pc-manager/agent/internal/logger"
 	"github.com/pc-manager/agent/internal/mesh"
+	"github.com/pc-manager/agent/internal/metrics"
 	"github.com/pc-manager/agent/internal/notify"
 	"github.com/pc-manager/agent/internal/screenshot"
 	"github.com/pc-manager/agent/internal/shell"
@@ -59,6 +60,8 @@ type program struct {
 	lastRestart   string
 	hbMu          sync.Mutex
 	lastHeartbeat time.Time
+	lastMetrics   time.Time
+	started       time.Time
 	hbWake        chan struct{}
 	inFlight      atomic.Int32
 	exclusive     sync.Mutex
@@ -298,6 +301,7 @@ func (p *program) heartbeat(api *client.Client, sandbox **filemanager.Sandbox) {
 				lg.Restore(entries)
 				lg.Printf("log ship: %v", err)
 			}
+			p.pushMetrics(api)
 			return
 		} else {
 			lg.Notef("WARNING", "ws heartbeat: %v", err)
@@ -322,10 +326,35 @@ func (p *program) heartbeat(api *client.Client, sandbox **filemanager.Sandbox) {
 		lg.Restore(entries)
 		lg.Printf("log ship: %v", err)
 	}
+	p.pushMetrics(api)
+}
+
+func (p *program) pushMetrics(api *client.Client) {
+	p.hbMu.Lock()
+	if !p.lastMetrics.IsZero() && time.Since(p.lastMetrics) < 60*time.Second {
+		p.hbMu.Unlock()
+		return
+	}
+	p.lastMetrics = time.Now()
+	started := p.started
+	p.hbMu.Unlock()
+	p.cfg.RLock()
+	services := append([]string(nil), p.cfg.WatchedServiceNames...)
+	p.cfg.RUnlock()
+	body := metrics.SampleHost(services, started)
+	if p.ws != nil && p.ws.Connected() {
+		if err := p.ws.SendJSON(body); err == nil {
+			return
+		}
+	}
+	if err := api.PostMetrics(body); err != nil && p.log != nil {
+		p.log.Notef("WARNING", "metrics: %v", err)
+	}
 }
 
 func (p *program) run() {
 	lg := p.log
+	p.started = time.Now()
 	api := client.New(p.cfg)
 	p.api = api
 	sandbox := filemanager.New(p.cfg.SandboxRoots, p.cfg.DataDir)

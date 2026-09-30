@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.0"
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Test
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+      - name: Agent tests
+        working-directory: apps/agent
+        run: go test ./...
+      - name: Agent build
+        working-directory: apps/agent
+        run: go build -o /tmp/pc-manager-agent ./cmd/agent
+      - name: Helper tests
+        working-directory: apps/helper
+        run: go test ./...
+      - name: Helper build
+        working-directory: apps/helper
+        run: go build -o /tmp/pc-manager-helper ./cmd/helper

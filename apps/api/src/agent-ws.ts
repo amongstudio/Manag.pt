@@ -48,6 +48,7 @@ import { acceptE2EAnswer, closeE2ESession, envelopeForOperator, matchesE2ESessio
 import { ingestUploadChunk, readDownloadChunk } from "./file-transfer.js"
 import { emitDevice } from "./io-emit.js"
 import { clientIp, hmacSha256Hex, safeEqual } from "./lib.js"
+import { normalizeMetrics, storeMetrics } from "./metrics.js"
 import { afterPeerCommandIngest } from "./peer-copy.js"
 import { dropWebrtcSession, touchWebrtcSession } from "./remote-session.js"
 import { ingestScreenshotBytes } from "./screenshot-ingest.js"
@@ -475,6 +476,11 @@ export async function registerAgentWs(app: FastifyInstance): Promise<void> {
           if (type === AGENT_WS_TYPE.command_ack) {
             const ack = commandAckSchema.safeParse(parsed)
             if (ack.success) agents.get(device.id)?.unacked.delete(ack.data.id)
+            return
+          }
+          if (type === AGENT_WS_TYPE.metrics) {
+            const samples = normalizeMetrics(parsed)
+            if (samples) await storeMetrics(device.id, samples)
             return
           }
           if (type === AGENT_WS_TYPE.heartbeat) {

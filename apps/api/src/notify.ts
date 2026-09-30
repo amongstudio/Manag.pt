@@ -16,6 +16,9 @@ export type AlertType =
   | "command_failure"
   | "kill_switch"
   | "heartbeat_missed"
+  | "metric_rule"
+  | "automation_failed"
+  | "storage_failure"
 
 const NOTIFY_FLAGS: Record<AlertType, keyof AppSettings["telegram"]> = {
   device_online: "notifyOnline",
@@ -26,6 +29,9 @@ const NOTIFY_FLAGS: Record<AlertType, keyof AppSettings["telegram"]> = {
   command_failure: "notifyCommandFailure",
   kill_switch: "notifyKillSwitch",
   heartbeat_missed: "notifyHeartbeatMissed",
+  metric_rule: "notifyMetricRule",
+  automation_failed: "notifyAutomation",
+  storage_failure: "notifyDiskLow",
 }
 
 export function shouldNotify(settings: AppSettings, type: AlertType): boolean {
@@ -91,6 +97,37 @@ function smtpTransportFor(settings: AppSettings) {
   return smtpTransport
 }
 
+export async function sendTeamsWebhook(webhookUrl: string, title: string, body: string): Promise<void> {
+  const url = webhookUrl.trim()
+  if (!url.startsWith("https://")) throw new Error("teams webhook must be https")
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({
+      "@type": "MessageCard",
+      "@context": "https://schema.org/extensions",
+      summary: title,
+      themeColor: "D83B01",
+      title,
+      text: body,
+    }),
+  })
+  if (!res.ok) throw new Error(`teams ${res.status}`)
+}
+
+export async function sendGenericWebhook(webhookUrl: string, title: string, body: string): Promise<void> {
+  const url = webhookUrl.trim()
+  if (!url.startsWith("https://")) throw new Error("webhook must be https")
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({ title, body, source: APP_NAME }),
+  })
+  if (!res.ok) throw new Error(`webhook ${res.status}`)
+}
+
 async function sendSmtp(settings: AppSettings, title: string, body: string): Promise<void> {
   if (!settings.smtp.enabled || !settings.smtp.host || settings.smtp.adminEmails.length === 0) {
     throw new Error("smtp disabled")
@@ -111,10 +148,12 @@ export async function enqueueAlert(
     title: string
     body: string
     deviceId?: string
+    force?: boolean
+    extraChannels?: Array<"telegram" | "discord" | "smtp" | "teams">
   }
 ): Promise<boolean> {
   const settings = await getSettings()
-  if (!shouldNotify(settings, input.type)) return false
+  if (!input.force && !shouldNotify(settings, input.type)) return false
   const cooldownSec = Number.isFinite(settings.thresholds.alertCooldownSec)
     ? settings.thresholds.alertCooldownSec
     : 1800
@@ -128,10 +167,14 @@ export async function enqueueAlert(
   })
   if (recent) return false
 
-  const channels: Array<"telegram" | "discord" | "smtp"> = []
+  const channels: Array<"telegram" | "discord" | "smtp" | "teams"> = []
   if (settings.telegram.enabled) channels.push("telegram")
   if (settings.discord.enabled) channels.push("discord")
   if (settings.smtp.enabled) channels.push("smtp")
+  if (settings.teams.enabled && settings.teams.webhookUrl) channels.push("teams")
+  for (const extra of input.extraChannels ?? []) {
+    if (!channels.includes(extra)) channels.push(extra)
+  }
   // Always persist a socket row so the dashboard alert fires even with no
   // outbound channel configured.
   await prisma.notification.createMany({
@@ -206,6 +249,8 @@ export async function flushNotifications(): Promise<void> {
         await sendDiscord(settings, row.title, row.body)
       } else if (row.channel === "smtp") {
         await sendSmtp(settings, row.title, row.body)
+      } else if (row.channel === "teams") {
+        await sendTeamsWebhook(settings.teams.webhookUrl, row.title, row.body)
       } else {
         await prisma.notification.updateMany({
           where: { id: row.id, status: "sending" },

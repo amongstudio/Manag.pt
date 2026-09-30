@@ -1,10 +1,13 @@
 import {
+  BellIcon,
+  BoxesIcon,
   ComputerIcon,
   FileTextIcon,
   LayoutDashboardIcon,
   MonitorIcon,
   PackageIcon,
   PuzzleIcon,
+  ScrollTextIcon,
   SettingsIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -13,6 +16,9 @@ export const APP_NAV: Array<{ href: string; label: string; icon: LucideIcon }> =
   { href: "/", label: "Overview", icon: LayoutDashboardIcon },
   { href: "/devices", label: "Devices", icon: MonitorIcon },
   { href: "/commands", label: "Commands", icon: ComputerIcon },
+  { href: "/scripts", label: "Scripts", icon: ScrollTextIcon },
+  { href: "/alerts", label: "Alerts", icon: BellIcon },
+  { href: "/inventory", label: "Inventory", icon: BoxesIcon },
   { href: "/plugins", label: "Plugins", icon: PuzzleIcon },
   { href: "/builder", label: "Builder", icon: PackageIcon },
   { href: "/logs", label: "Logs", icon: FileTextIcon },

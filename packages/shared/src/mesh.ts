@@ -32,6 +32,7 @@ export const MESH_DEFAULT_COMMANDS = [
   "get_bitlocker",
   "get_capabilities",
   "get_smb",
+  "collect_inventory",
 ] as const satisfies readonly CommandType[]
 
 /** Never accepted from a peer, even if listed in `allowCommands`. */
@@ -47,6 +48,7 @@ export const MESH_NEVER_COMMANDS = [
   "generate_credential",
   "restore_credentials",
   "set_bitlocker",
+  "install_windows_update",
 ] as const satisfies readonly CommandType[]
 
 const NEVER = new Set<string>(MESH_NEVER_COMMANDS)

@@ -14,6 +14,7 @@ function mergeSettings(raw: unknown): AppSettings {
   const parsed = (raw ?? {}) as Partial<AppSettings>
   return {
     telegram: { ...DEFAULT_SETTINGS.telegram, ...parsed.telegram },
+    teams: { ...DEFAULT_SETTINGS.teams, ...parsed.teams },
     discord: { ...DEFAULT_SETTINGS.discord, ...parsed.discord },
     smtp: { ...DEFAULT_SETTINGS.smtp, ...parsed.smtp },
     thresholds: { ...DEFAULT_SETTINGS.thresholds, ...parsed.thresholds },
@@ -84,6 +85,11 @@ export async function patchSettings(patch: AppSettingsPatch): Promise<AppSetting
       ...current.telegram,
       ...patch.telegram,
       botToken: keepSecret(patch.telegram?.botToken, current.telegram.botToken),
+    },
+    teams: {
+      ...current.teams,
+      ...patch.teams,
+      webhookUrl: keepSecret(patch.teams?.webhookUrl, current.teams.webhookUrl),
     },
     discord: {
       ...current.discord,

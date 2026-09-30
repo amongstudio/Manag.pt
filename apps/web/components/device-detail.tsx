@@ -36,6 +36,8 @@ import { FileExplorer, useDeviceFileProgress, type TransferRow } from "@/compone
 import { NetworkManager } from "@/components/network-manager"
 import { QueryErrorBanner, QueryErrorState } from "@/components/query-error"
 import { RegistryEditor } from "@/components/registry-editor"
+import { AssistantPanel } from "@/components/assistant-panel"
+import { DeviceHardware, DeviceMetrics, DeviceSoftware, DeviceUsers } from "@/components/device-assets"
 import { ServiceManager } from "@/components/service-manager"
 import { WindowsTools } from "@/components/windows-tools"
 import { useDeviceSubscription, useSocket } from "@/components/providers"
@@ -653,6 +655,7 @@ export function DeviceDetail({ id }: { id: string }) {
           </div>
         </div>
       </div>
+      <AssistantPanel deviceId={id} />
       <Tabs
         value={tab.primary}
         onValueChange={(value) => {
@@ -699,6 +702,18 @@ export function DeviceDetail({ id }: { id: string }) {
                 </TabsTrigger>
               ))}
             </TabsList>
+            <TabsContent value="metrics">
+              <DeviceMetrics deviceId={id} />
+            </TabsContent>
+            <TabsContent value="hardware">
+              <DeviceHardware deviceId={id} />
+            </TabsContent>
+            <TabsContent value="software">
+              <DeviceSoftware deviceId={id} />
+            </TabsContent>
+            <TabsContent value="users">
+              <DeviceUsers deviceId={id} />
+            </TabsContent>
             <TabsContent value="services">
               <ServiceManager
                 deviceId={id}
