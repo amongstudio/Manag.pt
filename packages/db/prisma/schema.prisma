@@ -58,6 +58,8 @@ model Device {
   startupItems  StartupItem[]
   browsers      Browser[]
   userProfiles  UserProfile[]
+  scans         Scan[]
+  findings      Finding[]
 
   @@index([status, lastSeen])
   @@index([lastSeen])
@@ -312,6 +314,7 @@ model Script {
 
   runs      ScriptRun[]
   schedules ScriptSchedule[]
+  findings  Finding[]
 
   @@index([name])
 }
@@ -669,6 +672,69 @@ model UserProfile {
   collectedAt DateTime @default(now())
 
   @@index([deviceId, collectedAt])
+}
+
+model Scan {
+  id         String    @id @default(cuid())
+  deviceId   String?
+  device     Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  kind       String
+  target     String
+  status     String    @default("pending")
+  commandId  String?
+  summary    String    @default("")
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  findings   Finding[]
+
+  @@index([createdAt])
+  @@index([deviceId, createdAt])
+  @@index([status])
+}
+
+model Finding {
+  id              String    @id @default(cuid())
+  scanId          String?
+  scan            Scan?     @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  deviceId        String?
+  device          Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  hostIp          String    @default("")
+  hostHostname    String    @default("")
+  hostOs          String    @default("")
+  source          String
+  category        String
+  severity        String
+  title           String
+  description     String    @default("")
+  cveId           String    @default("")
+  cvssScore       Float?
+  evidence        String    @default("")
+  remediation     String    @default("")
+  remediationType String    @default("manual")
+  scriptId        String?
+  script          Script?   @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+  status          String    @default("open")
+  acceptReason    String    @default("")
+  firstSeen       DateTime  @default(now())
+  lastSeen        DateTime  @default(now())
+
+  @@unique([hostIp, source, category, title, cveId])
+  @@index([deviceId])
+  @@index([severity])
+  @@index([cveId])
+  @@index([status])
+  @@index([scanId])
+}
+
+model CveCache {
+  id        String   @id @default(cuid())
+  product   String
+  version   String
+  payload   String
+  fetchedAt DateTime @default(now())
+
+  @@unique([product, version])
 }
 
 model RemoteSession {

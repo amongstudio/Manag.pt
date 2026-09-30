@@ -1,6 +1,7 @@
 import { prisma } from "@workspace/db"
 
 import { upsertInventory } from "./inventory-store.js"
+import { finishScan } from "./scan-store.js"
 import { cleanText } from "./inventory-lib.js"
 
 type CommandRow = {
@@ -46,6 +47,18 @@ export async function applyCommandEffects(deviceId: string, command: CommandRow)
   }
   if (command.type === "get_windows_update") {
     await upsertWindowsUpdateResult(deviceId, result)
+  }
+  if (command.type === "network_scan" || command.type === "nuclei_scan" || command.type === "host_posture") {
+    const scanId = typeof payload.scanId === "string" ? payload.scanId : ""
+    if (scanId && (command.status === "success" || command.status === "failed")) {
+      await finishScan({
+        scanId,
+        deviceId,
+        status: command.status,
+        result,
+        kind: command.type,
+      })
+    }
   }
 }
 

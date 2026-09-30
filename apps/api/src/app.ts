@@ -15,6 +15,7 @@ import { registerChatRoutes } from "./routes-chat.js"
 import { registerPluginRoutes } from "./routes-plugins.js"
 import { registerBuilderRoutes } from "./routes-builder.js"
 import { registerPlatformRoutes } from "./routes-platform.js"
+import { registerScanRoutes } from "./routes-scans.js"
 import { startJobs } from "./jobs.js"
 import { getSettings } from "./settings.js"
 import { clientIp, httpRateLimitBucket, ipAllowed } from "./lib.js"
@@ -78,6 +79,7 @@ async function main() {
   await registerPluginRoutes(app)
   await registerBuilderRoutes(app)
   await registerPlatformRoutes(app)
+  await registerScanRoutes(app)
   startJobs(app)
 
   await app.listen({ port: env.port, host: env.host })

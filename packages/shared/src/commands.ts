@@ -62,6 +62,9 @@ export const COMMAND_TYPES = [
 	"restore_credentials",
 	"collect_inventory",
 	"install_windows_update",
+	"network_scan",
+	"nuclei_scan",
+	"host_posture",
 	"peer_listen",
 	"peer_offer",
 ] as const
