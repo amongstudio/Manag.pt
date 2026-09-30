@@ -1,5 +1,16 @@
 import { z } from "zod"
 
+import {
+  CONNECTIONS_LIMIT_MAX,
+  LOCAL_PASSWORD_MAX,
+  LOCAL_PASSWORD_MIN,
+  LOCAL_USER_ACTIONS,
+  SCAN_TOOLS,
+  localAccountNameSchema,
+  msiProductCodeSchema,
+  packageVersionSchema,
+  wingetIdSchema,
+} from "./admin-actions.ts"
 import { COMMAND_TYPES, LOG_LEVELS, PLUGIN_RUNTIMES, type CommandType } from "./commands.ts"
 import { MESH_FORWARD_KEY, PEER_LAN_ADDRS_MAX } from "./constants.ts"
 import { meshPolicySchema } from "./mesh.ts"
@@ -302,9 +313,45 @@ export const commandPayloadSchemas = {
   stop_watch: z.object({}),
   update_agent: z.object({}),
   install_app: z
-    .object({ name: commandNameSchema.optional(), id: commandNameSchema.optional() })
+    .object({
+      name: commandNameSchema.optional(),
+      id: wingetIdSchema.optional(),
+      version: packageVersionSchema.optional(),
+      scope: z.enum(["machine", "user"]).optional(),
+    })
     .refine((v) => Boolean(v.name || v.id), "name or id required"),
-  uninstall_app: z.object({ name: commandNameSchema }),
+  uninstall_app: z.object({
+    name: commandNameSchema,
+    version: z
+      .string()
+      .max(128)
+      .refine((v) => !/[\r\n\0]/.test(v), "invalid characters")
+      .optional(),
+    productCode: msiProductCodeSchema.optional(),
+    wingetId: wingetIdSchema.optional(),
+  }),
+  get_clipboard: z.object({}),
+  get_local_users: z.object({}),
+  local_user_action: z
+    .object({
+      username: localAccountNameSchema,
+      action: z.enum(LOCAL_USER_ACTIONS),
+      password: z.string().min(LOCAL_PASSWORD_MIN).max(LOCAL_PASSWORD_MAX).optional(),
+    })
+    .superRefine((v, ctx) => {
+      if (v.action === "set_password" && !v.password) {
+        ctx.addIssue({ code: "custom", message: "password required", path: ["password"] })
+      }
+      if (v.action !== "set_password" && v.password !== undefined) {
+        ctx.addIssue({ code: "custom", message: "password only allowed for set_password", path: ["password"] })
+      }
+    }),
+  get_connections: z.object({
+    includeListening: z.boolean().optional(),
+    limit: z.number().int().min(1).max(CONNECTIONS_LIMIT_MAX).optional(),
+  }),
+  get_scan_tools: z.object({}),
+  install_scan_tool: z.object({ tool: z.enum(SCAN_TOOLS) }),
   run_script: z.object({
     script: z.string().min(1).max(65_536),
     language: z.enum(["powershell", "python", "batch", "shell"]).optional(),

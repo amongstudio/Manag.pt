@@ -8,24 +8,31 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/pc-manager/agent/internal/capture"
 	"github.com/pc-manager/agent/internal/client"
+	"github.com/pc-manager/agent/internal/cliphist"
 	"github.com/pc-manager/agent/internal/credwin"
 	"github.com/pc-manager/agent/internal/filemanager"
 	"github.com/pc-manager/agent/internal/helpercfg"
 	"github.com/pc-manager/agent/internal/inventory"
+	"github.com/pc-manager/agent/internal/localusers"
 	"github.com/pc-manager/agent/internal/moduletool"
 	"github.com/pc-manager/agent/internal/monitor"
+	"github.com/pc-manager/agent/internal/netconn"
 	"github.com/pc-manager/agent/internal/netwin"
 	"github.com/pc-manager/agent/internal/peerfile"
 	"github.com/pc-manager/agent/internal/procutil"
 	"github.com/pc-manager/agent/internal/scan"
 	"github.com/pc-manager/agent/internal/screenshot"
 	"github.com/pc-manager/agent/internal/smbwin"
+	"github.com/pc-manager/agent/internal/software"
 	"github.com/pc-manager/agent/internal/svcctl"
 	"github.com/pc-manager/agent/internal/updater"
 	"github.com/pc-manager/agent/internal/winops"
@@ -70,7 +77,8 @@ func Classify(typ string) Class {
 	switch typ {
 	case "restart", "shutdown", "kill_switch", "update_agent":
 		return ClassExclusive
-	case "install_app", "uninstall_app", "run_script", "run_plugin", "run_module", "upload_file", "download_file", "search_files", "copy_file", "get_services", "start_service", "stop_service", "restart_service", "get_adapters", "get_ports", "get_firewall", "set_firewall_rule", "delete_firewall_rule", "peer_listen", "peer_offer", "get_event_log", "get_windows_update", "install_windows_update", "start_quick_assist", "get_tasks", "set_task_enabled", "get_defender", "set_defender", "start_defender_scan", "update_defender", "defender_action", "cancel_defender_scan", "get_bitlocker", "set_bitlocker", "get_capabilities", "install_capability", "get_smb", "smb_list", "smb_connect", "smb_disconnect", "get_credentials", "set_credential", "delete_credential", "generate_credential", "backup_credentials", "restore_credentials", "collect_inventory", "network_scan", "nuclei_scan", "host_posture":
+	case "install_app", "uninstall_app", "run_script", "run_plugin", "run_module", "upload_file", "download_file", "search_files", "copy_file", "get_services", "start_service", "stop_service", "restart_service", "get_adapters", "get_ports", "get_firewall", "set_firewall_rule", "delete_firewall_rule", "peer_listen", "peer_offer", "get_event_log", "get_windows_update", "install_windows_update", "start_quick_assist", "get_tasks", "set_task_enabled", "get_defender", "set_defender", "start_defender_scan", "update_defender", "defender_action", "cancel_defender_scan", "get_bitlocker", "set_bitlocker", "get_capabilities", "install_capability", "get_smb", "smb_list", "smb_connect", "smb_disconnect", "get_credentials", "set_credential", "delete_credential", "generate_credential", "backup_credentials", "restore_credentials", "collect_inventory", "network_scan", "nuclei_scan", "host_posture",
+		"get_local_users", "local_user_action", "get_connections", "get_scan_tools", "install_scan_tool":
 		return ClassLong
 	default:
 		return ClassFast
@@ -178,16 +186,45 @@ func Handle(typ string, payload json.RawMessage, deps Deps) (any, error) {
 		return map[string]any{"scheduled": true, "action": "shutdown"}, nil
 	case "install_app":
 		reportProgress(deps, 0)
-		name, _ := body["name"].(string)
-		id, _ := body["id"].(string)
-		if id == "" {
-			id = name
+		req, err := software.ParseInstall(payload)
+		if err != nil {
+			return nil, err
 		}
-		return runInstall(id)
+		return software.Install(context.Background(), req)
 	case "uninstall_app":
 		reportProgress(deps, 0)
-		name, _ := body["name"].(string)
-		return runUninstall(name)
+		req, err := software.ParseUninstall(payload)
+		if err != nil {
+			return nil, err
+		}
+		return software.Uninstall(context.Background(), req)
+	case "get_clipboard":
+		return clipboardSnapshot(), nil
+	case "get_local_users":
+		return localusers.List()
+	case "local_user_action":
+		req, err := localusers.ParseAction(payload)
+		if err != nil {
+			return nil, err
+		}
+		return localusers.Apply(req)
+	case "get_connections":
+		req, err := netconn.Parse(payload)
+		if err != nil {
+			return nil, err
+		}
+		return netconn.Collect(context.Background(), req)
+	case "get_scan_tools":
+		scan.SetToolsDir(toolsDir(deps))
+		return map[string]any{"tools": scan.Status(context.Background()), "rawScan": scan.RawScanCapable()}, nil
+	case "install_scan_tool":
+		scan.SetToolsDir(toolsDir(deps))
+		tool, _ := body["tool"].(string)
+		if !slices.Contains(scan.Tools, tool) {
+			return nil, errors.New("invalid_tool")
+		}
+		reportProgress(deps, 0)
+		return scan.InstallTool(context.Background(), tool)
 	case "run_script":
 		reportProgress(deps, 0)
 		return runScriptBody(body)
@@ -398,11 +435,14 @@ func Handle(typ string, payload json.RawMessage, deps Deps) (any, error) {
 		reportProgress(deps, 0)
 		return inventory.Collect(), nil
 	case "network_scan":
+		scan.SetToolsDir(toolsDir(deps))
 		return runNetworkScan(body)
 	case "nuclei_scan":
+		scan.SetToolsDir(toolsDir(deps))
 		return runNucleiScan(body)
 	case "host_posture":
-		return scan.HostPosture(), nil
+		scan.SetToolsDir(toolsDir(deps))
+		return scan.HostPosture(context.Background(), scan.LoadScope(scanScopePath())), nil
 	case "apply_config":
 		return applyLocalConfig(body, deps)
 	case "start_quick_assist":
@@ -1006,66 +1046,35 @@ func lookPython() (string, error) {
 	return "", errors.New("python_not_found")
 }
 
-// validatePackageName rejects empty names and names that would be parsed as an
-// option (a leading '-'), preventing argument injection into the package
-// manager (e.g. apt-get install -o=Dir::Bin::dpkg=/tmp/evil).
-func validatePackageName(name string) (string, error) {
-	n := strings.TrimSpace(name)
-	if n == "" {
-		return "", errors.New("empty package name")
+func toolsDir(deps Deps) string {
+	if deps.DataDir == "" {
+		return ""
 	}
-	if strings.HasPrefix(n, "-") {
-		return "", errors.New("invalid package name")
-	}
-	return n, nil
+	return filepath.Join(deps.DataDir, "tools")
 }
 
-func runInstall(name string) (any, error) {
-	pkg, err := validatePackageName(name)
+// clipboardSnapshot reads the clipboard once on operator request and returns
+// it with the shared bounded history. No background collection happens.
+func clipboardSnapshot() map[string]any {
+	out := map[string]any{"at": time.Now().UnixMilli()}
+	snap, err := capture.SnapshotClip()
 	if err != nil {
-		return nil, err
+		out["error"] = capture.ErrorCode(err)
+	} else if snap.Text != "" || snap.HTML != "" || len(snap.Files) > 0 || len(snap.Image) > 0 {
+		kind := snap.Kind
+		if kind == "" {
+			kind = "text"
+		}
+		item := cliphist.Default.PushClip(cliphist.Item{Kind: kind, Text: snap.Text, HTML: snap.HTML, Files: snap.Files, Mime: snap.Mime, Image: snap.Image})
+		out["current"] = cliphist.Wire(item)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "winget", "install", "--accept-package-agreements", "--accept-source-agreements", pkg)
-	} else if _, err := exec.LookPath("apt-get"); err == nil {
-		cmd = exec.CommandContext(ctx, "apt-get", "install", "-y", "--", pkg)
-	} else if _, err := exec.LookPath("dnf"); err == nil {
-		cmd = exec.CommandContext(ctx, "dnf", "install", "-y", "--", pkg)
-	} else {
-		return nil, errors.New("no package manager")
+	items := cliphist.Default.List()
+	history := make([]map[string]any, 0, len(items))
+	for i := len(items) - 1; i >= 0; i-- {
+		history = append(history, cliphist.Wire(items[i]))
 	}
-	procutil.Harden(cmd, 10*time.Second)
-	out, err := cmd.CombinedOutput()
-	s := string(out)
-	if len(s) > 65536 {
-		s = s[:65536]
-	}
-	return map[string]string{"output": s}, err
-}
-
-func runUninstall(name string) (any, error) {
-	pkg, err := validatePackageName(name)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "winget", "uninstall", pkg)
-	} else if _, err := exec.LookPath("apt-get"); err == nil {
-		cmd = exec.CommandContext(ctx, "apt-get", "remove", "-y", "--", pkg)
-	} else if _, err := exec.LookPath("dnf"); err == nil {
-		cmd = exec.CommandContext(ctx, "dnf", "remove", "-y", "--", pkg)
-	} else {
-		return nil, errors.New("no package manager")
-	}
-	procutil.Harden(cmd, 10*time.Second)
-	out, err := cmd.CombinedOutput()
-	return map[string]string{"output": string(out)}, err
+	out["history"] = history
+	return out
 }
 
 // ErrorResult always attaches err to a failed command payload so the UI never

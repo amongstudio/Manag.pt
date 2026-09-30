@@ -1,7 +1,24 @@
 export const SCRIPT_LANGUAGES = ["powershell", "python", "batch", "shell"] as const
 export type ScriptLanguage = (typeof SCRIPT_LANGUAGES)[number]
 
-export type ScriptParameter = { name: string; default?: string }
+export type ScriptParameter = { name: string; default?: string; pattern?: string }
+
+/** Anchored, compilable, and short: a parameter pattern can only narrow input. */
+export function validParameterPattern(pattern: string): boolean {
+  if (pattern.length < 2 || pattern.length > 200 || !pattern.startsWith("^") || !pattern.endsWith("$")) return false
+  try {
+    new RegExp(pattern)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export class ScriptParameterError extends Error {
+  constructor(readonly parameter: string) {
+    super(`invalid_parameter:${parameter}`)
+  }
+}
 
 export type ScriptWrite = {
   name: string
@@ -49,7 +66,10 @@ function parseParameters(value: unknown): ScriptParameter[] | null {
     if (!NAME.test(name) || name.length > 64) return null
     const fallback = row.default == null ? undefined : String(row.default)
     if (fallback != null && fallback.length > 1024) return null
-    out.push(fallback == null ? { name } : { name, default: fallback })
+    const pattern = typeof row.pattern === "string" && row.pattern !== "" ? row.pattern : undefined
+    if (pattern != null && !validParameterPattern(pattern)) return null
+    if (pattern != null && fallback != null && fallback !== "" && !new RegExp(pattern).test(fallback)) return null
+    out.push({ name, ...(fallback == null ? {} : { default: fallback }), ...(pattern == null ? {} : { pattern }) })
   }
   return out
 }
@@ -61,14 +81,21 @@ export function renderScript(content: string, parameters: Record<string, string>
   })
 }
 
+/**
+ * Throws ScriptParameterError when a value has a line break or NUL (which could
+ * add statements) or fails the parameter's pattern.
+ */
 export function resolveParameters(
   defined: ScriptParameter[],
-  provided: Record<string, string> | undefined
+  provided: Record<string, unknown> | undefined
 ): Record<string, string> {
   const out: Record<string, string> = {}
   for (const param of defined) {
     const given = provided?.[param.name]
-    out[param.name] = given != null && given !== "" ? given.slice(0, 1024) : (param.default ?? "")
+    const value = typeof given === "string" && given !== "" ? given : (param.default ?? "")
+    if (value.length > 1024 || /[\r\n\0]/.test(value)) throw new ScriptParameterError(param.name)
+    if (param.pattern && !new RegExp(param.pattern).test(value)) throw new ScriptParameterError(param.name)
+    out[param.name] = value
   }
   return out
 }

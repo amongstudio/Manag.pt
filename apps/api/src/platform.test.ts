@@ -6,7 +6,7 @@ import { buildAuditRow } from "./audit-row.ts"
 import { cronMatches, parseCron } from "./cron-match.ts"
 import { cleanSerial, escapeLike, normalizeInventory } from "./inventory-lib.ts"
 import { clauseHolds, compare, parseRules, ruleHolds, type MetricPoint } from "./rules.ts"
-import { renderScript, validateScriptWrite } from "./scripts-lib.ts"
+import { ScriptParameterError, renderScript, resolveParameters, validateScriptWrite } from "./scripts-lib.ts"
 import { inMaintenanceWindow, nextUpdateApproval } from "./updates-lib.ts"
 import { defenderDisabled, parseAutomations } from "./automations-lib.ts"
 
@@ -22,6 +22,25 @@ test("script validation and render", () => {
   if (!parsed.ok) return
   assert.equal(renderScript(parsed.value.content, { Name: "D" }), "Write-Output D")
   assert.equal(validateScriptWrite({ name: "", language: "shell", content: "x" }).ok, false)
+})
+
+test("script parameters are pattern-checked and cannot add lines", () => {
+  const base = { name: "Svc", language: "powershell", content: "Get-Service {{svc}}", timeoutSeconds: 30 }
+  assert.equal(validateScriptWrite({ ...base, parameters: [{ name: "svc", pattern: "[a-z]+" }] }).ok, false, "unanchored")
+  assert.equal(validateScriptWrite({ ...base, parameters: [{ name: "svc", pattern: "^(" + "$" }] }).ok, false, "invalid regex")
+  assert.equal(
+    validateScriptWrite({ ...base, parameters: [{ name: "svc", pattern: "^[a-z]+$", default: "BAD!" }] }).ok,
+    false,
+    "default must match"
+  )
+  const parsed = validateScriptWrite({ ...base, parameters: [{ name: "svc", pattern: "^[A-Za-z0-9_]{1,40}$", default: "Spooler" }] })
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) return
+  const defs = parsed.value.parameters
+  assert.deepEqual(resolveParameters(defs, {}), { svc: "Spooler" })
+  assert.deepEqual(resolveParameters(defs, { svc: "wuauserv" }), { svc: "wuauserv" })
+  assert.throws(() => resolveParameters(defs, { svc: "x; Stop-Computer" }), ScriptParameterError)
+  assert.throws(() => resolveParameters([{ name: "free" }], { free: "a\nStop-Computer" }), ScriptParameterError)
 })
 
 test("cron matches a minute and rejects garbage", () => {

@@ -3,7 +3,13 @@ import { test } from "node:test"
 
 import { redactCredentialCommand } from "@workspace/shared"
 
-import { encryptVaultSecret, decryptVaultSecret, hydrateCommandPayload, sealCommandPayload } from "./vault.ts"
+import {
+  encryptVaultSecret,
+  decryptVaultSecret,
+  hydrateCommandPayload,
+  sealCommandPayload,
+  vaultSecretState,
+} from "./vault.ts"
 
 test("vault AES-256-GCM roundtrips and rejects tamper", () => {
   const enc = encryptVaultSecret("s3cret!")
@@ -82,4 +88,24 @@ test("seal and hydrate smb_connect password without leaving plaintext", () => {
   assert.equal(forwarded.password, undefined)
   assert.equal(forwarded.passwordEnc, undefined)
   assert.equal(forwarded.meshForward, "dev-b")
+})
+
+test("local_user_action password is sealed at rest and hydrated only for dispatch", () => {
+  const sealed = sealCommandPayload("local_user_action", { username: "bob", action: "set_password", password: "N3w-pass!" })
+  assert.equal(sealed.password, undefined)
+  assert.equal(JSON.stringify(sealed).includes("N3w-pass!"), false)
+  const hyd = hydrateCommandPayload("local_user_action", sealed) as { password?: string; passwordEnc?: string }
+  assert.equal(hyd.password, "N3w-pass!")
+  assert.equal(hyd.passwordEnc, undefined)
+  const shown = redactCredentialCommand("local_user_action", sealed, { ok: true })
+  assert.equal((shown.payload as { passwordEnc?: string }).passwordEnc, "[redacted]")
+})
+
+test("vault secret state distinguishes stored, metadata, decrypt failure, and unsupported", () => {
+  assert.equal(vaultSecretState({ source: "windows", kind: "generic", secretEnc: encryptVaultSecret("x") }), "stored")
+  assert.equal(vaultSecretState({ source: "windows", kind: "generic", secretEnc: "" }), "metadata_only")
+  assert.equal(vaultSecretState({ source: "windows", kind: "domain", secretEnc: "" }), "unsupported_source")
+  assert.equal(vaultSecretState({ source: "browser", kind: "password", secretEnc: "" }), "metadata_only")
+  assert.equal(vaultSecretState({ source: "windows", kind: "generic", secretEnc: "v1:AAAA" }), "decrypt_failed")
+  assert.equal(vaultSecretState({ source: "windows", kind: "generic", secretEnc: "legacy" }), "decrypt_failed")
 })

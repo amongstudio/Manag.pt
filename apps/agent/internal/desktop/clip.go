@@ -6,87 +6,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/pc-manager/agent/internal/capture"
+	"github.com/pc-manager/agent/internal/cliphist"
 )
 
-const clipRingMax = 32
+type clipItem = cliphist.Item
 
-type clipItem struct {
-	Kind  string
-	Text  string
-	HTML  string
-	Files []string
-	Mime  string
-	Image []byte
-	At    int64
-}
+type clipRing = cliphist.Ring
 
-type clipRing struct {
-	mu    sync.Mutex
-	items []clipItem
-	capN  int
-}
+func newClipRing(n int) *clipRing { return cliphist.New(n) }
 
-func newClipRing(n int) *clipRing {
-	if n < 1 {
-		n = clipRingMax
-	}
-	return &clipRing{capN: n}
-}
-
-func clipKey(it clipItem) string {
-	return it.Kind + "\n" + it.Text + "\n" + it.HTML + "\n" + it.Mime
-}
-
-func (r *clipRing) Push(text string) clipItem {
-	return r.PushClip(clipItem{Kind: "text", Text: text})
-}
-
-func (r *clipRing) PushClip(item clipItem) clipItem {
-	if item.At == 0 {
-		item.At = time.Now().UnixMilli()
-	}
-	if r == nil {
-		return item
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if n := len(r.items); n > 0 && clipKey(r.items[n-1]) == clipKey(item) {
-		r.items[n-1] = item
-		return item
-	}
-	r.items = append(r.items, item)
-	if len(r.items) > r.capN {
-		r.items = r.items[len(r.items)-r.capN:]
-	}
-	return item
-}
-
-func (r *clipRing) LastText() string {
-	if r == nil {
-		return ""
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.items) == 0 {
-		return ""
-	}
-	return r.items[len(r.items)-1].Text
-}
-
-func (r *clipRing) List() []clipItem {
-	if r == nil {
-		return nil
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]clipItem, len(r.items))
-	copy(out, r.items)
-	return out
-}
+func clipKey(it clipItem) string { return cliphist.Key(it) }
 
 func clipFromCapture(c capture.Clip) clipItem {
 	kind := c.Kind
@@ -168,7 +99,7 @@ func clipItemFromWire(raw []byte) (clipItem, bool) {
 	return clipItem{Kind: kind, Text: w.Text, HTML: w.HTML, Files: w.Files, Mime: mime, Image: img, At: w.At}, true
 }
 
-func (item clipItem) toCapture() capture.Clip {
+func clipToCapture(item clipItem) capture.Clip {
 	return capture.Clip{
 		Kind:  item.Kind,
 		Text:  item.Text,

@@ -15,11 +15,13 @@ Change operator-editable values on **Configuration** and **Settings**. Do not ha
 
 ## Scanner binaries
 
-Install on the **agent host**, not necessarily the API host. The API only queues the command.
+Install on the **agent host**, not necessarily the API host. The API only queues the command. The easiest way is **Security → Check tools → Install pinned**, which installs a fixed, SHA-256-verified release into the agent's own tools directory (see [security scans](../users/security-scans.md)). A manual install into Program Files or onto the machine `PATH` is also found without restarting the agent service.
 
 - `nmap` — port and service scan. Without it, scans finish as `nmap_unavailable`.
 - `nuclei` — template scan with the safe flags baked into the agent. Update templates yourself: `nuclei -update-templates` about weekly. The agent will not do that.
-- `trivy` — optional offline package scan. Without it, posture says `trivy_unavailable` and still evaluates Defender, firewall, BitLocker, Windows updates, and the software version rules (seeded from `config/software-rules.yaml`).
+- `trivy` — optional offline package scan during host posture, over `trivy_paths` in the agent's `config/scan-scope.yaml`. Without it, posture says `trivy_unavailable` and still evaluates Defender, firewall, BitLocker, Windows updates, and the software version rules (seeded from `config/software-rules.yaml`). The agent uses `<agent data dir>\tools\trivy\cache` when that database exists, otherwise Trivy's default cache for the service account. After a manual install, run `trivy image --download-db-only --cache-dir "<agent data dir>\tools\trivy\cache"` (or use Install pinned); otherwise posture reports `db_missing`.
+
+Pinned releases are updated in `apps/agent/internal/scan/install.go` by changing the version, URL, and SHA-256 together, then rebuilding the agent.
 
 Keep lab mode on until authorized networks list only ranges you own. Edit that list on Configuration. Sign `SECURITY_AUTHORIZATION.md` when that list is real. The signature in git is a blank line. The git YAML remains the default for a new database.
 

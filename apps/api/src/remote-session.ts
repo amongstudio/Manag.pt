@@ -78,13 +78,39 @@ export async function dropE2ESession(sessionId: string): Promise<void> {
   }
 }
 
-export async function touchWebrtcSession(deviceId: string, kind?: string): Promise<void> {
-  const live: WebrtcMeta = { lastKind: kind, updatedAt: Date.now() }
-  webrtcByDevice.set(deviceId, live)
+const webrtcWrites = new Map<string, Promise<void>>()
+
+/** Start/end rows for one device must not interleave, or audits double up. */
+function serialWebrtc(deviceId: string, work: () => Promise<void>): Promise<void> {
+  const next = (webrtcWrites.get(deviceId) ?? Promise.resolve()).catch(() => undefined).then(work)
+  webrtcWrites.set(deviceId, next)
+  void next.finally(() => {
+    if (webrtcWrites.get(deviceId) === next) webrtcWrites.delete(deviceId)
+  }).catch(() => undefined)
+  return next
+}
+
+/** Session rows keep the expiry set at start; signaling does not extend it. */
+export function touchWebrtcSession(
+  deviceId: string,
+  kind?: string,
+  opts: { actor?: string; allowInput?: boolean } = {}
+): Promise<void> {
+  webrtcByDevice.set(deviceId, { lastKind: kind, updatedAt: Date.now() })
+  return serialWebrtc(deviceId, () => writeWebrtcTouch(deviceId, kind, opts))
+}
+
+async function writeWebrtcTouch(
+  deviceId: string,
+  kind: string | undefined,
+  opts: { actor?: string; allowInput?: boolean }
+): Promise<void> {
   const id = `webrtc:${deviceId}`
   const existing = await prisma.remoteSession.findUnique({ where: { id } })
   const previous = existing?.meta ? safeMeta(existing.meta) : {}
-  const stored = { ...previous, lastKind: kind }
+  const stored: Record<string, unknown> = { ...previous, lastKind: kind }
+  if (opts.actor && !existing) stored.actor = opts.actor
+  if (opts.allowInput !== undefined) stored.allowInput = opts.allowInput
   await prisma.remoteSession.upsert({
     where: { id },
     create: {
@@ -96,29 +122,44 @@ export async function touchWebrtcSession(deviceId: string, kind?: string): Promi
     },
     update: {
       meta: JSON.stringify(stored),
-      expiresAt: ttlDate(),
     },
   })
   if (!existing) {
     await appendAudit({
-      actor: "operator",
+      actor: opts.actor || "operator",
       action: "remote_session_start",
       deviceId,
-      detail: { kind: "webrtc" },
+      detail: { kind: "webrtc", allowInput: opts.allowInput === true },
+    })
+  } else if (kind === "control" && opts.allowInput !== undefined && previous.allowInput !== opts.allowInput) {
+    await appendAudit({
+      actor: opts.actor || "operator",
+      action: "remote_session_input",
+      deviceId,
+      detail: { kind: "webrtc", allowInput: opts.allowInput },
     })
   }
 }
 
-export async function dropWebrtcSession(deviceId: string): Promise<void> {
+export function dropWebrtcSession(deviceId: string, opts: { actor?: string; reason?: string } = {}): Promise<void> {
   webrtcByDevice.delete(deviceId)
+  return serialWebrtc(deviceId, () => writeWebrtcDrop(deviceId, opts))
+}
+
+async function writeWebrtcDrop(deviceId: string, opts: { actor?: string; reason?: string }): Promise<void> {
   const existing = await prisma.remoteSession.findUnique({ where: { id: `webrtc:${deviceId}` } })
   await prisma.remoteSession.deleteMany({ where: { id: `webrtc:${deviceId}` } })
   if (existing) {
+    const meta = existing.meta ? safeMeta(existing.meta) : {}
     await appendAudit({
-      actor: "operator",
+      actor: opts.actor || (typeof meta.actor === "string" ? meta.actor : "operator"),
       action: "remote_session_end",
       deviceId,
-      detail: { kind: "webrtc" },
+      detail: {
+        kind: "webrtc",
+        reason: opts.reason ?? "hangup",
+        durationSec: Math.round((Date.now() - existing.createdAt.getTime()) / 1000),
+      },
     })
   }
 }
@@ -156,7 +197,17 @@ export async function hydrateRemoteSessions(): Promise<PersistedE2E[]> {
   return e2e
 }
 
-export async function expireRemoteSessions(): Promise<void> {
-  await prisma.remoteSession.deleteMany({ where: { expiresAt: { lte: new Date() } } })
-  await prisma.operatorSession.deleteMany({ where: { expiresAt: { lte: new Date() } } })
+/** Deletes expired rows; `onWebrtcExpired` lets the caller hang up the agent side. */
+export async function expireRemoteSessions(onWebrtcExpired?: (deviceId: string) => void): Promise<void> {
+  const now = new Date()
+  const webrtc = await prisma.remoteSession.findMany({
+    where: { kind: "webrtc", expiresAt: { lte: now } },
+    select: { deviceId: true },
+  })
+  for (const row of webrtc) {
+    onWebrtcExpired?.(row.deviceId)
+    await dropWebrtcSession(row.deviceId, { reason: "session_expired" })
+  }
+  await prisma.remoteSession.deleteMany({ where: { expiresAt: { lte: now } } })
+  await prisma.operatorSession.deleteMany({ where: { expiresAt: { lte: now } } })
 }

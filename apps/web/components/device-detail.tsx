@@ -709,10 +709,10 @@ export function DeviceDetail({ id }: { id: string }) {
               <DeviceHardware deviceId={id} />
             </TabsContent>
             <TabsContent value="software">
-              <DeviceSoftware deviceId={id} />
+              <DeviceSoftware deviceId={id} online={device.status === "online"} />
             </TabsContent>
             <TabsContent value="users">
-              <DeviceUsers deviceId={id} />
+              <DeviceUsers deviceId={id} platform={device.platform} online={device.status === "online"} />
             </TabsContent>
             <TabsContent value="services">
               <ServiceManager

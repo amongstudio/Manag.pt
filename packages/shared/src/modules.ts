@@ -135,6 +135,171 @@ export const moduleRunRequestSchema = z.object({
   args: z.array(z.string().max(1024)).max(32).default([]),
 })
 
+export type ModuleRegistrationInput = z.input<typeof moduleRegistrationSchema>
+
+/**
+ * Registration presets for read-only admin tools. A template never ships or
+ * downloads an artifact: the operator uploads the vendor binary, and the normal
+ * signing, disabled-by-default, approval, and grant flow still applies. Fixed
+ * flags are pinned through single-value `choices`.
+ */
+export type ModuleTemplate = {
+  templateId: string
+  description: string
+  sourceUrl: string
+  registration: ModuleRegistrationInput
+}
+
+const EULA_ARG = {
+  name: "eula",
+  type: "string",
+  required: true,
+  maxLength: 16,
+  choices: ["-accepteula"],
+} as const
+const NOBANNER_ARG = {
+  name: "nobanner",
+  type: "string",
+  required: true,
+  maxLength: 16,
+  choices: ["-nobanner"],
+} as const
+
+export const MODULE_TEMPLATES: readonly ModuleTemplate[] = [
+  {
+    templateId: "sysinternals-sigcheck",
+    description:
+      "Verify Authenticode signatures under a folder and list unsigned files. Read-only.",
+    sourceUrl: "https://learn.microsoft.com/sysinternals/downloads/sigcheck",
+    registration: {
+      id: "sysinternals-sigcheck",
+      displayName: "Sysinternals Sigcheck",
+      version: "2.90",
+      kind: "exe",
+      platform: "windows",
+      arch: "amd64",
+      entrypoint: "sysinternals-sigcheck.exe",
+      action: "verify_signatures",
+      argumentsSchema: [
+        { ...EULA_ARG, choices: [...EULA_ARG.choices] },
+        { ...NOBANNER_ARG, choices: [...NOBANNER_ARG.choices] },
+        {
+          name: "filter",
+          type: "string",
+          required: true,
+          maxLength: 4,
+          choices: ["-u", "-e", "-s"],
+        },
+        { name: "path", type: "string", required: true, maxLength: 260 },
+      ],
+      timeoutSec: 300,
+      maxOutputBytes: 262_144,
+    },
+  },
+  {
+    templateId: "sysinternals-autorunsc",
+    description:
+      "List autostart entries (Run keys, services, scheduled tasks) as CSV. Read-only.",
+    sourceUrl: "https://learn.microsoft.com/sysinternals/downloads/autoruns",
+    registration: {
+      id: "sysinternals-autorunsc",
+      displayName: "Sysinternals Autorunsc",
+      version: "14.11",
+      kind: "exe",
+      platform: "windows",
+      arch: "amd64",
+      entrypoint: "sysinternals-autorunsc.exe",
+      action: "list_autostart",
+      argumentsSchema: [
+        { ...EULA_ARG, choices: [...EULA_ARG.choices] },
+        { ...NOBANNER_ARG, choices: [...NOBANNER_ARG.choices] },
+        {
+          name: "category",
+          type: "string",
+          required: true,
+          maxLength: 2,
+          choices: ["-a"],
+        },
+        {
+          name: "which",
+          type: "string",
+          required: true,
+          maxLength: 1,
+          choices: ["*", "l", "s", "t", "w"],
+        },
+        {
+          name: "format",
+          type: "string",
+          required: true,
+          maxLength: 3,
+          choices: ["-c", "-ct"],
+        },
+      ],
+      timeoutSec: 300,
+      maxOutputBytes: 1_048_576,
+    },
+  },
+  {
+    templateId: "sysinternals-du",
+    description: "Summarize directory sizes to a fixed depth. Read-only.",
+    sourceUrl: "https://learn.microsoft.com/sysinternals/downloads/du",
+    registration: {
+      id: "sysinternals-du",
+      displayName: "Sysinternals Disk Usage",
+      version: "1.62",
+      kind: "exe",
+      platform: "windows",
+      arch: "amd64",
+      entrypoint: "sysinternals-du.exe",
+      action: "disk_usage",
+      argumentsSchema: [
+        { ...EULA_ARG, choices: [...EULA_ARG.choices] },
+        { ...NOBANNER_ARG, choices: [...NOBANNER_ARG.choices] },
+        {
+          name: "levels",
+          type: "string",
+          required: true,
+          maxLength: 2,
+          choices: ["-l"],
+        },
+        {
+          name: "depth",
+          type: "integer",
+          required: true,
+          maxLength: 1,
+          choices: ["1", "2", "3"],
+        },
+        { name: "path", type: "string", required: true, maxLength: 260 },
+      ],
+      timeoutSec: 300,
+      maxOutputBytes: 262_144,
+    },
+  },
+  {
+    templateId: "example-dll-plugin",
+    description:
+      "Catalog-only example of a DLL plug-in entry. DLL modules cannot run until a dedicated module host exists.",
+    sourceUrl: "",
+    registration: {
+      id: "example-dll-plugin",
+      displayName: "Example DLL plug-in (catalog only)",
+      version: "1.0.0",
+      kind: "dll-plugin",
+      platform: "windows",
+      arch: "amd64",
+      entrypoint: "example-dll-plugin.dll",
+      action: "describe",
+      argumentsSchema: [],
+      timeoutSec: 60,
+      maxOutputBytes: 65_536,
+    },
+  },
+]
+
+export function moduleTemplateRunnable(template: ModuleTemplate): boolean {
+  return template.registration.kind === "exe"
+}
+
 export type ModuleManifestInput = {
   id: string
   displayName: string

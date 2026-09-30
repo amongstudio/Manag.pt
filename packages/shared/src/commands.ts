@@ -69,6 +69,12 @@ export const COMMAND_TYPES = [
 	"apply_config",
 	"peer_listen",
 	"peer_offer",
+	"get_clipboard",
+	"get_local_users",
+	"local_user_action",
+	"get_connections",
+	"get_scan_tools",
+	"install_scan_tool",
 ] as const
 
 export type CommandType = (typeof COMMAND_TYPES)[number]
@@ -85,6 +91,7 @@ export const DESTRUCTIVE_COMMANDS = new Set<CommandType>([
   "kill_switch",
   "kill_process",
   "delete_file",
+  "install_app",
   "uninstall_app",
   "run_plugin",
   "run_module",
@@ -112,6 +119,23 @@ export const DESTRUCTIVE_COMMANDS = new Set<CommandType>([
   "backup_credentials",
   "restore_credentials",
   "install_windows_update",
+  "local_user_action",
+  "install_scan_tool",
+])
+
+/** Commands whose queueing is always written to the audit log with the operator identity. */
+export const AUDITED_COMMANDS = new Set<CommandType>([
+  "start_service",
+  "stop_service",
+  "restart_service",
+  "kill_process",
+  "install_app",
+  "uninstall_app",
+  "get_clipboard",
+  "get_local_users",
+  "local_user_action",
+  "install_scan_tool",
+  "run_script",
 ])
 
 export const COMMAND_STATUS = ["pending", "running", "success", "failed", "cancelled"] as const

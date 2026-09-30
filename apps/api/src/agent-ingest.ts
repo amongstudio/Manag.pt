@@ -16,6 +16,7 @@ import {
 
 import { env } from "./env.js"
 import { emitFleet } from "./io-emit.js"
+import { listSafeResult } from "./command-audit.js"
 import { applyCommandEffects } from "./command-effects.js"
 import { enqueueAlert } from "./notify.js"
 import { getSettings } from "./settings.js"
@@ -267,7 +268,7 @@ export async function ingestCommandResult(
   if (outcome.kind === "duplicate") return { ok: true, duplicate: true }
 
   const updated = outcome.updated
-  const publicResult = needsSecretRedaction(updated.type) ? stripCredentialSecrets(stored) : stored
+  const publicResult = listSafeResult(updated.type, needsSecretRedaction(updated.type) ? stripCredentialSecrets(stored) : stored)
   emitFleet(app, WS_EVENTS.COMMAND_RESULT, {
     id: updated.id,
     deviceId: device.id,
@@ -283,7 +284,7 @@ export async function ingestCommandResult(
       title: `Command failed on ${device.hostname}`,
       body: needsSecretRedaction(updated.type)
         ? `${updated.type} failed (secrets omitted)`
-        : `${updated.type}: ${JSON.stringify(stored ?? {})}`,
+        : `${updated.type}: ${JSON.stringify(listSafeResult(updated.type, stored) ?? {})}`,
     })
   }
   const full = await prisma.command.findUnique({ where: { id: updated.id } })

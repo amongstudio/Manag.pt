@@ -17,7 +17,8 @@ export async function queueScriptRun(
     content: string
     timeoutSeconds: number
     parameters?: ScriptParameter[]
-    provided?: Record<string, string>
+    provided?: Record<string, unknown>
+    templateId?: string
   }
 ): Promise<{ runId: string; commandId: string }> {
   const rendered = renderScript(input.content, resolveParameters(input.parameters ?? [], input.provided))
@@ -48,7 +49,14 @@ export async function queueScriptRun(
     actor: input.actor,
     action: "script_run",
     deviceId: input.deviceId,
-    detail: { runId: run.id, commandId: command.id, scriptId: input.scriptId ?? null, trigger: input.trigger, language: input.language },
+    detail: {
+      runId: run.id,
+      commandId: command.id,
+      scriptId: input.scriptId ?? null,
+      ...(input.templateId ? { templateId: input.templateId } : {}),
+      trigger: input.trigger,
+      language: input.language,
+    },
   })
   return { runId: run.id, commandId: command.id }
 }
@@ -100,9 +108,15 @@ function parseStoredParameters(raw: string): ScriptParameter[] {
     if (!Array.isArray(parsed)) return []
     return parsed.flatMap((item) => {
       if (!item || typeof item !== "object") return []
-      const row = item as { name?: unknown; default?: unknown }
+      const row = item as { name?: unknown; default?: unknown; pattern?: unknown }
       if (typeof row.name !== "string") return []
-      return [{ name: row.name, default: typeof row.default === "string" ? row.default : undefined }]
+      return [
+        {
+          name: row.name,
+          default: typeof row.default === "string" ? row.default : undefined,
+          pattern: typeof row.pattern === "string" && row.pattern ? row.pattern : undefined,
+        },
+      ]
     })
   } catch {
     return []

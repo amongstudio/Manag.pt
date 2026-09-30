@@ -38,6 +38,7 @@ import { errorBody, multipartValue, pathExists, randomToken, safeUploadFilename,
 import { sqliteBackup } from "./jobs.js"
 import { filterModuleTargets } from "./module-access.js"
 import { appendAudit } from "./audit.js"
+import { auditPayload, isAuditedCommand, listSafeResult } from "./command-audit.js"
 import { operatorAuthorized } from "./operator-auth.js"
 import { getSettings, parseSettingsPatch, patchSettings } from "./settings.js"
 import { enqueueAlert } from "./notify.js"
@@ -46,15 +47,24 @@ import { createOperatorPeerCopy, lanPeersFor } from "./peer-copy.js"
 import { isFileTooLargeError, readMultipartFile, writeUploadStream } from "./upload.js"
 import { prepareCredentialCommand } from "./vault.js"
 
-function serializeCommand<T extends { type: string; payload: string; result: string | null }>(row: T) {
+function serializeCommand<T extends { type: string; payload: string; result: string | null }>(
+  row: T,
+  opts: { fullResult?: boolean } = {}
+) {
   const payload = parseJson(row.payload, {})
   const result = parseJson(row.result, null)
   const redacted = redactCredentialCommand(row.type, payload, result)
   return {
     ...row,
     payload: redacted.payload,
-    result: redacted.result,
+    result: opts.fullResult ? redacted.result : listSafeResult(row.type, redacted.result),
   }
+}
+
+/** At most one active command of these types per device within the window. */
+const SINGLE_FLIGHT_COMMANDS: Partial<Record<string, { error: string; windowMs: number }>> = {
+  get_connections: { error: "connections_in_flight", windowMs: 2 * 60_000 },
+  install_scan_tool: { error: "install_in_flight", windowMs: 30 * 60_000 },
 }
 
 function serializeArtifactRow<T extends { path: string }>(row: T): Omit<T, "path"> {
@@ -426,6 +436,19 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         args: run.data.args,
       }
     }
+    const singleFlight = SINGLE_FLIGHT_COMMANDS[type]
+    if (singleFlight) {
+      const busy = await prisma.command.findFirst({
+        where: {
+          deviceId: { in: deviceIds },
+          type,
+          status: { in: [...COMMAND_ACTIVE_STATUS] },
+          createdAt: { gte: new Date(Date.now() - singleFlight.windowMs) },
+        },
+        select: { id: true, deviceId: true },
+      })
+      if (busy) return reply.code(409).send(errorBody(singleFlight.error, { deviceId: busy.deviceId, commandId: busy.id }))
+    }
     const sealed = await Promise.all(
       deviceIds.map(async (deviceId) => ({
         deviceId,
@@ -458,12 +481,13 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         })
       })
     )
-    if (type === "start_service" || type === "stop_service" || type === "restart_service" || type === "kill_process") {
+    if (isAuditedCommand(type)) {
       const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
       await appendAudit({
         actor: authed.username || "operator",
         action: type,
-        detail: { deviceIds, payload },
+        deviceId: deviceIds.length === 1 ? deviceIds[0] : undefined,
+        detail: { deviceIds, commandIds: created.map((row) => row.id), payload: auditPayload(type, payload) },
       })
     }
     if (type === "run_module") {
@@ -487,7 +511,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         body: `Devices: ${deviceIds.join(", ")}`,
       })
     }
-    return { commands: created.map(serializeCommand), skipped }
+    return { commands: created.map((row) => serializeCommand(row)), skipped }
   })
 
   app.post(`${API_PREFIX}/admin/commands/:id/cancel`, async (req, reply) => {
@@ -571,6 +595,15 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       type: row.type,
       status: row.status,
     })
+    if (isAuditedCommand(row.type)) {
+      const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
+      await appendAudit({
+        actor: authed.username || "operator",
+        action: row.type,
+        deviceId: row.deviceId,
+        detail: { commandId: row.id, previousCommandId: command.id, retry: true, payload: auditPayload(row.type, payload) },
+      })
+    }
     if (row.type === "run_module") {
       const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
       await appendAudit({
@@ -656,7 +689,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     if (!command) return reply.code(404).send(errorBody("not_found"))
     return {
       command: {
-        ...serializeCommand(command),
+        ...serializeCommand(command, { fullResult: true }),
         hostname: command.device.hostname,
       },
     }

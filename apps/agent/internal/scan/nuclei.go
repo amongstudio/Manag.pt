@@ -5,10 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/pc-manager/agent/internal/procutil"
 )
 
 var forbiddenNucleiTags = map[string]struct{}{
@@ -40,7 +41,7 @@ func NucleiArgs(target string) []string {
 }
 
 func NucleiAvailable() bool {
-	_, err := exec.LookPath("nuclei")
+	_, _, err := ResolveTool(ToolNuclei)
 	return err == nil
 }
 
@@ -132,19 +133,21 @@ func str(value any) string {
 }
 
 func RunNuclei(ctx context.Context, target string, timeout time.Duration) ([]NucleiFinding, error) {
-	if !NucleiAvailable() {
-		return nil, errors.New("nuclei_unavailable")
+	bin, _, err := ResolveTool(ToolNuclei)
+	if err != nil {
+		return nil, err
 	}
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, "nuclei", NucleiArgs(target)...)
+	cmd := exec.CommandContext(runCtx, bin, NucleiArgs(target)...)
+	procutil.Harden(cmd, 10*time.Second)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stdout
-	err := cmd.Run()
+	err = cmd.Run()
 	if stdout.Len() == 0 && err != nil {
 		return nil, err
 	}

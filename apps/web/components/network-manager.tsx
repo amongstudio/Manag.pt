@@ -4,6 +4,8 @@ import * as React from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
+  CONNECTIONS_POLL_MAX_MS,
+  CONNECTIONS_POLL_MIN_MS,
   FIREWALL_ACTIONS,
   FIREWALL_DIRECTIONS,
   FIREWALL_PROTOCOLS,
@@ -20,6 +22,7 @@ import {
   latestSuccessfulFirewall,
   latestSuccessfulPorts,
   parseAdapterList,
+  parseConnectionsResult,
   parseFirewall,
   parsePortList,
   portRowKey,
@@ -29,6 +32,7 @@ import {
   resultErrorMessage,
   resultPayloadError,
   type AdapterInfo,
+  type ConnectionsSnapshot,
   type FirewallAction,
   type FirewallDirection,
   type FirewallProtocol,
@@ -37,8 +41,8 @@ import {
   type PortInfo,
 } from "@workspace/shared"
 
-import { api } from "@/lib/api"
-import { pollAdminCommand } from "@/lib/command-poll"
+import { api, formatBytes } from "@/lib/api"
+import { pollAdminCommand, runDeviceCommand } from "@/lib/command-poll"
 import { useSocket } from "@/components/providers"
 import { QueryErrorBanner, QueryErrorState } from "@/components/query-error"
 import {
@@ -218,6 +222,7 @@ export function NetworkManager({
           <TabsTrigger value="adapters">Adapters</TabsTrigger>
           <TabsTrigger value="ports">Ports</TabsTrigger>
           <TabsTrigger value="firewall">Firewall</TabsTrigger>
+          <TabsTrigger value="connections">Connections</TabsTrigger>
         </TabsList>
         <TabsContent value="adapters">
           <AdaptersPane snapshot={adapters} />
@@ -227,6 +232,9 @@ export function NetworkManager({
         </TabsContent>
         <TabsContent value="firewall">
           <FirewallPane snapshot={firewall} deviceId={deviceId} />
+        </TabsContent>
+        <TabsContent value="connections">
+          <ConnectionsPane deviceId={deviceId} online={online} active={tab === "connections"} />
         </TabsContent>
       </Tabs>
     </div>
@@ -460,6 +468,194 @@ function PortRow({ port }: { port: PortInfo }) {
         {port.process || "—"}
       </TableCell>
     </TableRow>
+  )
+}
+
+const LIVE_INTERVALS = [
+  { value: String(CONNECTIONS_POLL_MIN_MS), label: "Every 5 s" },
+  { value: "15000", label: "Every 15 s" },
+  { value: "60000", label: "Every 60 s" },
+]
+
+function ConnectionsPane({ deviceId, online, active }: { deviceId: string; online: boolean; active: boolean }) {
+  const [snapshot, setSnapshot] = React.useState<ConnectionsSnapshot | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [pending, setPending] = React.useState(false)
+  const [live, setLive] = React.useState(false)
+  const [intervalMs, setIntervalMs] = React.useState(String(CONNECTIONS_POLL_MIN_MS))
+  const [includeListening, setIncludeListening] = React.useState(false)
+  const [filter, setFilter] = React.useState("")
+  const busy = React.useRef(false)
+  const abort = React.useRef<AbortController | null>(null)
+
+  const refresh = React.useCallback(async () => {
+    if (busy.current) return
+    busy.current = true
+    setPending(true)
+    const ac = new AbortController()
+    abort.current = ac
+    try {
+      const cmd = await runDeviceCommand(deviceId, "get_connections", { includeListening, limit: 500 }, { signal: ac.signal })
+      const parsed = parseConnectionsResult(cmd.result)
+      if (!parsed) throw new Error("unexpected result")
+      setSnapshot(parsed)
+      setError(null)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "get_connections failed"
+      if (message !== "aborted" && message !== "connections_in_flight") setError(message)
+    } finally {
+      busy.current = false
+      setPending(false)
+    }
+  }, [deviceId, includeListening])
+
+  React.useEffect(() => () => abort.current?.abort(), [deviceId])
+
+  React.useEffect(() => {
+    if (!live || !active || !online) return
+    const ms = Math.min(Math.max(Number(intervalMs), CONNECTIONS_POLL_MIN_MS), CONNECTIONS_POLL_MAX_MS)
+    const tick = () => {
+      if (document.visibilityState === "visible") void refresh()
+    }
+    const first = setTimeout(tick, 0)
+    const timer = setInterval(tick, ms)
+    return () => {
+      clearTimeout(first)
+      clearInterval(timer)
+    }
+  }, [live, active, online, intervalMs, refresh])
+
+  const q = filter.trim().toLowerCase()
+  const rows = (snapshot?.connections ?? []).filter(
+    (c) =>
+      !q ||
+      c.localAddr.includes(q) ||
+      (c.remoteAddr ?? "").includes(q) ||
+      (c.process ?? "").toLowerCase().includes(q) ||
+      (c.state ?? "").toLowerCase().includes(q) ||
+      String(c.localPort).includes(q) ||
+      String(c.remotePort ?? "").includes(q) ||
+      String(c.pid ?? "").includes(q)
+  )
+  const ioByPid = new Map((snapshot?.processIo ?? []).map((p) => [p.pid, p]))
+
+  return (
+    <div className="flex flex-col gap-3 pt-3">
+      <p className="text-xs text-muted-foreground">
+        Socket metadata only: process, protocol, addresses, and state. No packet contents, DNS queries, or HTTP bodies are
+        captured. Live mode re-queues get_connections while this tab is open and visible.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input className="max-w-xs" placeholder="Filter connections" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <label className="flex items-center gap-2 text-sm">
+          <Switch checked={includeListening} onCheckedChange={setIncludeListening} />
+          Include listening
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <Switch checked={live} onCheckedChange={setLive} disabled={!online} />
+          Live
+        </label>
+        <Select items={LIVE_INTERVALS} value={intervalMs} onValueChange={(value) => setIntervalMs(String(value))}>
+          <SelectTrigger className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {LIVE_INTERVALS.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <Button size="sm" variant="outline" onClick={() => void refresh()} disabled={pending || !online}>
+          {pending ? <Spinner data-icon="inline-start" /> : null}
+          Refresh
+        </Button>
+        {snapshot?.collectedAt ? (
+          <span className="text-xs text-muted-foreground">Collected {new Date(snapshot.collectedAt).toLocaleTimeString()}</span>
+        ) : null}
+      </div>
+      {error ? (
+        <QueryErrorBanner error={new Error(error)} cached={Boolean(snapshot)} onRetry={() => void refresh()} />
+      ) : null}
+      {!snapshot ? (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>No connection list yet</EmptyTitle>
+            <EmptyDescription>
+              {online ? "Refresh or turn on Live to queue get_connections." : "The device is offline."}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <>
+          {snapshot.interfaces.length ? (
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              {snapshot.interfaces.slice(0, 8).map((i) => (
+                <Badge key={i.name} variant="outline">
+                  {i.name}: ↑{formatBytes(i.bytesSent)} ↓{formatBytes(i.bytesRecv)}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+          {snapshot.byteCounts ? <p className="text-xs text-muted-foreground">Byte counts: {snapshot.byteCounts}</p> : null}
+          {snapshot.truncated ? (
+            <p className="text-xs text-muted-foreground">
+              Showing {snapshot.connections.length} of {snapshot.total} connections.
+            </p>
+          ) : null}
+          <Card>
+            <CardContent className="overflow-x-auto pt-6">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Process</TableHead>
+                    <TableHead>PID</TableHead>
+                    <TableHead>Protocol</TableHead>
+                    <TableHead>Local</TableHead>
+                    <TableHead>Remote</TableHead>
+                    <TableHead>State</TableHead>
+                    <TableHead>Process I/O</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-muted-foreground">
+                        No connections match the filter.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    rows.map((c, i) => {
+                      const io = c.pid ? ioByPid.get(c.pid) : undefined
+                      const local = `${c.localAddr}:${c.localPort}`
+                      const remote = c.remoteAddr ? `${c.remoteAddr}:${c.remotePort ?? 0}` : "—"
+                      return (
+                        <TableRow key={`${c.protocol}-${local}-${remote}-${c.pid ?? 0}-${i}`}>
+                          <TableCell className="max-w-40 truncate" title={c.process}>
+                            {c.process || "—"}
+                          </TableCell>
+                          <TableCell>{c.pid ?? "—"}</TableCell>
+                          <TableCell className="uppercase">{c.protocol}</TableCell>
+                          <TableCell className="font-mono text-xs">{local}</TableCell>
+                          <TableCell className="font-mono text-xs">{remote}</TableCell>
+                          <TableCell>{c.state ? portStateLabel(c.state) : "—"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {io ? `r ${formatBytes(io.readBytes)} · w ${formatBytes(io.writeBytes)}` : "—"}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
   )
 }
 

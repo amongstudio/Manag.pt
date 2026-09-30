@@ -37,6 +37,40 @@ export type PollCommandOutcome =
   | { kind: "timeout" }
   | { kind: "error"; message: string }
 
+/** Queues one command for one device and returns its id. */
+export async function queueDeviceCommand(
+  deviceId: string,
+  type: string,
+  payload: Record<string, unknown> = {}
+): Promise<string> {
+  const data = await api<{ commands?: { id: string }[] }>("/api/v1/admin/commands", {
+    method: "POST",
+    body: JSON.stringify({ deviceIds: [deviceId], type, payload }),
+  })
+  const id = data.commands?.[0]?.id
+  if (!id) throw new Error("command not queued")
+  return id
+}
+
+/** Queue then poll; throws with the agent's error text when the command does not succeed. */
+export async function runDeviceCommand(
+  deviceId: string,
+  type: string,
+  payload: Record<string, unknown>,
+  opts: { signal: AbortSignal; timeoutMs?: number }
+): Promise<AdminCommandRow> {
+  const id = await queueDeviceCommand(deviceId, type, payload)
+  const outcome = await pollAdminCommand(id, opts)
+  if (outcome.kind === "timeout") throw new Error("timeout")
+  if (outcome.kind === "error") throw new Error(outcome.message)
+  const cmd = outcome.command
+  const err = (cmd.result as { error?: unknown } | null | undefined)?.error
+  if (cmd.status !== "success" || typeof err === "string") {
+    throw new Error(typeof err === "string" ? err : `${type} ${cmd.status}`)
+  }
+  return cmd
+}
+
 /** HTTP poll until the command is terminal, the timeout elapses, or `signal` aborts. */
 export async function pollAdminCommand(
   commandId: string,

@@ -2,9 +2,10 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import { CLIPBOARD_IMAGE_MAX, CLIPBOARD_KIND, WEBRTC_ERROR, WS_EVENTS, h264FallbackLabel, type ClipboardKind, type WebrtcIceServer, type WebrtcSignalPayload } from "@workspace/shared"
+import { CLIPBOARD_IMAGE_MAX, CLIPBOARD_KIND, WEBRTC_ERROR, WS_EVENTS, clipContentKey, h264FallbackLabel, pushClipHistory, type ClipboardKind, type WebrtcIceServer, type WebrtcSignalPayload } from "@workspace/shared"
 
 import { api, formatBytes } from "@/lib/api"
+import { pollAdminCommand, queueDeviceCommand } from "@/lib/command-poll"
 import { decryptBytes, encryptBytes, type E2ESession } from "@/lib/e2e"
 import { NumberInput } from "@/components/number-input"
 import { useRealtime } from "@/components/providers"
@@ -211,10 +212,20 @@ function saveClips(deviceId: string, items: ClipEntry[]) {
 }
 
 function pushClip(items: ClipEntry[], entry: Omit<ClipEntry, "id">): ClipEntry[] {
-  const next: ClipEntry[] = [{ ...entry, id: `${entry.at}-${Math.random().toString(36).slice(2, 8)}` }, ...items]
-  const pinned = next.filter((c) => c.pinned)
-  const rest = next.filter((c) => !c.pinned).slice(0, CLIP_MAX)
-  return [...pinned, ...rest]
+  return pushClipHistory(items, { ...entry, id: `${entry.at}-${Math.random().toString(36).slice(2, 8)}` }, CLIP_MAX)
+}
+
+/** Agent history lists arrive oldest-first; only content not already shown is added. */
+function mergeRemoteClips(items: ClipEntry[], remote: Omit<ClipEntry, "id">[]): ClipEntry[] {
+  const known = new Set(items.map(clipContentKey))
+  let next = items
+  for (const entry of remote) {
+    const key = clipContentKey(entry)
+    if (known.has(key)) continue
+    known.add(key)
+    next = pushClip(next, entry)
+  }
+  return next
 }
 
 type ClipSyncStatus = "idle" | "waiting_input" | "syncing" | "ready" | "unsupported" | "error"
@@ -266,6 +277,14 @@ function captureErrorLabel(code: string): string {
   if (key === "capture_failed" || key === "capture_timeout") {
     return "Desktop capture failed on the agent."
   }
+  if (key === "session_replaced") return "Another operator session took over this device's desktop."
+  if (key === "session_expired" || key === "agent:session_expired") {
+    return "The desktop session reached its maximum duration. Start a new session to continue."
+  }
+  if (key === "session_not_owned") return "This desktop session belongs to another operator tab."
+  if (key === "signal_rate_limited") return "Too many signaling messages; the session was stopped. Try again shortly."
+  if (key === "input_throttled") return "Remote input is being sent too fast; some events were dropped."
+  if (key === "clipboard_rate_limited") return "Clipboard requests are rate-limited; try again in a moment."
   return key
 }
 
@@ -414,6 +433,9 @@ export function WebrtcDesktop({
   const [clipSyncStatus, setClipSyncStatus] = React.useState<ClipSyncStatus>("idle")
   const [clipSyncError, setClipSyncError] = React.useState<string | null>(null)
   const clipPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  const [fetchingClip, setFetchingClip] = React.useState(false)
+  const clipFetchAbort = React.useRef<AbortController | null>(null)
+  React.useEffect(() => () => clipFetchAbort.current?.abort(), [])
   const lastRemoteClipAt = React.useRef(0)
   const clipboardSupportedRef = React.useRef(true)
   const [captureError, setCaptureError] = React.useState<string | null>(null)
@@ -596,6 +618,41 @@ export function WebrtcDesktop({
     rememberClip({ kind: CLIPBOARD_KIND.text, text, at: at ?? Date.now(), from })
   }
 
+  /** On-demand get_clipboard over the audited command path; no desktop session needed. */
+  async function fetchDeviceClipboard() {
+    if (fetchingClip) return
+    setFetchingClip(true)
+    clipFetchAbort.current?.abort()
+    const ac = new AbortController()
+    clipFetchAbort.current = ac
+    try {
+      const id = await queueDeviceCommand(deviceId, "get_clipboard")
+      const outcome = await pollAdminCommand(id, { signal: ac.signal })
+      if (outcome.kind === "timeout") throw new Error("timeout")
+      if (outcome.kind === "error") throw new Error(outcome.message)
+      const result = (outcome.command.result ?? {}) as { current?: unknown; history?: unknown; error?: unknown }
+      const history = Array.isArray(result.history) ? result.history : []
+      const remote: Omit<ClipEntry, "id">[] = []
+      for (const raw of [...history].reverse()) {
+        const rec = parseClipListItem(raw)
+        const entry = rec ? clipFromAgent(rec, "remote") : null
+        if (entry) remote.push(entry)
+      }
+      if (remote.length) setClips((cur) => mergeRemoteClips(cur, remote))
+      if (typeof result.error === "string") {
+        setClipSyncError(clipErrorLabel(result.error))
+      } else {
+        setClipSyncError(null)
+        toast.success(remote.length ? `Fetched ${remote.length} clipboard item${remote.length === 1 ? "" : "s"}` : "Device clipboard is empty")
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "get_clipboard failed"
+      if (message !== "aborted") toast.error(`Clipboard fetch failed: ${message}`)
+    } finally {
+      setFetchingClip(false)
+    }
+  }
+
   function handleAgentJson(raw: string) {
     try {
       const msg = JSON.parse(raw) as Record<string, unknown>
@@ -717,11 +774,7 @@ export function WebrtcDesktop({
           if (entry) remote.push(entry)
         }
         if (remote.length) {
-          setClips((cur) => {
-            let next = cur
-            for (const entry of remote) next = pushClip(next, entry)
-            return next
-          })
+          setClips((cur) => mergeRemoteClips(cur, remote))
           setClipSyncError(null)
         }
         setClipSyncStatus("ready")
@@ -1467,7 +1520,9 @@ export function WebrtcDesktop({
   const filteredClips = clips.filter((c) => !clipSearch || clipSearchText(c).includes(clipSearch.toLowerCase()))
   const clipChannelReady = sessionOn && connected && inputOpen && clipboardSupported
   const clipStatusLabel = (() => {
-    if (!sessionOn) return "Connect remote desktop to sync clipboard with this device."
+    if (!sessionOn) {
+      return clipSyncError ?? "Not connected. Fetch from device reads the clipboard and recent history once (audited)."
+    }
     if (!clipboardSupported || clipSyncStatus === "unsupported") {
       return "Clipboard sync unavailable — agent has no interactive user session."
     }
@@ -1728,6 +1783,9 @@ export function WebrtcDesktop({
             >
               Get
             </Button>
+            <Button size="sm" variant="outline" onClick={() => void fetchDeviceClipboard()} disabled={fetchingClip}>
+              {fetchingClip ? "Fetching…" : "Fetch from device"}
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -1771,7 +1829,7 @@ export function WebrtcDesktop({
             {filteredClips.length === 0 ? (
               <li className="rounded-md border border-dashed px-2 py-3 text-xs text-muted-foreground">
                 {!sessionOn
-                  ? "Start a remote desktop session to view clipboard history here."
+                  ? "No clips yet. Use Fetch from device, or start a remote desktop session for live sync."
                   : !clipboardSupported
                     ? "Clipboard history unavailable on this agent."
                     : !inputOpen

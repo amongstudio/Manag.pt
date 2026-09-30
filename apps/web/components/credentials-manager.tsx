@@ -12,10 +12,14 @@ import {
   credentialRevealConfirm,
   credentialRestoreConfirm,
   credentialVaultDeleteConfirm,
+  credentialSecretStateLabel,
+  credentialSecretUnsupported,
   credentialWriteConfirm,
   parseCredentials,
   queuedCommandId,
   resultErrorMessage,
+  vaultClearConfirm,
+  type CredentialSecretState,
   type VaultCredential,
 } from "@workspace/shared"
 
@@ -68,10 +72,23 @@ type CommandSeed = { id: string; type: string; status: string; result?: unknown 
 type VaultRow = VaultCredential & {
   id?: string
   hasSecret?: boolean
+  secretState?: CredentialSecretState
   backedUpAt?: string
 }
 
 const SOURCES = ["all", "windows", "browser", "apps", "generated", "bitlocker"] as const
+const BACKUP_SOURCES = new Set(["windows", "browser", "apps"])
+
+function rowSecretState(row: VaultRow): CredentialSecretState {
+  if (row.secretState) return row.secretState
+  return credentialSecretUnsupported(row) ? "unsupported_source" : "metadata_only"
+}
+
+function secretStateVariant(state: CredentialSecretState): "secondary" | "outline" | "destructive" {
+  if (state === "stored") return "secondary"
+  if (state === "decrypt_failed") return "destructive"
+  return "outline"
+}
 
 export function CredentialsManager({
   deviceId,
@@ -221,7 +238,14 @@ export function CredentialsManager({
   const vaultByKey = new Map(vaultRows.map((row) => [row.key, row]))
   const merged: VaultRow[] = agent.credentials.map((row) => {
     const vault = vaultByKey.get(row.key)
-    return { ...row, id: vault?.id, hasSecret: vault?.hasSecret, backedUpAt: vault?.backedUpAt }
+    return {
+      ...row,
+      secret: undefined,
+      id: vault?.id,
+      hasSecret: vault?.hasSecret,
+      secretState: vault?.secretState,
+      backedUpAt: vault?.backedUpAt,
+    }
   })
   for (const row of vaultRows) {
     if (!merged.some((item) => item.key === row.key)) merged.push({ ...row, kind: row.kind || "generic" })
@@ -267,12 +291,25 @@ export function CredentialsManager({
     })
   }
 
+  async function revealVaulted(id: string) {
+    const data = await api<{ credential: { secret?: string; target: string } }>(
+      `/api/v1/admin/devices/${deviceId}/credentials/${id}?reveal=1`
+    )
+    setReveal({ target: data.credential.target, secret: data.credential.secret ?? "" })
+  }
+
   async function revealRow(row: VaultRow) {
-    if (row.id && row.hasSecret) {
-      const data = await api<{ credential: { secret?: string; target: string } }>(
-        `/api/v1/admin/devices/${deviceId}/credentials/${row.id}?reveal=1`
-      )
-      setReveal({ target: data.credential.target, secret: data.credential.secret || "" })
+    const state = rowSecretState(row)
+    if (state === "unsupported_source") {
+      toast.error("Windows does not release this credential type (domain password); it cannot be revealed.")
+      return
+    }
+    if (state === "decrypt_failed") {
+      toast.error("Vault copy cannot be decrypted with the current dashboard key. Back up again to replace it.")
+      return
+    }
+    if (row.id && state === "stored") {
+      await revealVaulted(row.id)
       return
     }
     toast.message(
@@ -283,14 +320,11 @@ export function CredentialsManager({
     const cmd = await queue("backup_credentials", { sources: [row.source || "windows"] }, 120_000)
     if (!cmd) return
     const backup = parseCredentials(cmd.result)
-    const agentSecret = backup.credentials.find((item) => item.key === row.key)?.secret
-    if (agentSecret) {
-      setReveal({ target: row.target, secret: agentSecret })
-      return
-    }
+    // Agent results are redacted by the API, so the vault is the only source of the secret.
     const refreshed = await api<{ credentials: VaultRow[] }>(`/api/v1/admin/devices/${deviceId}/credentials`)
+    client.setQueryData(["vault", deviceId], refreshed)
     const match = refreshed.credentials.find((item) => item.key === row.key)
-    if (!match?.id || !match.hasSecret) {
+    if (!match?.id || rowSecretState(match) !== "stored") {
       const hint = backup.needsSession
         ? "Secret was not decrypted. Sign in on the desktop and retry backup."
         : backup.browserLocked
@@ -299,10 +333,7 @@ export function CredentialsManager({
       toast.error(hint)
       return
     }
-    const data = await api<{ credential: { secret?: string; target: string } }>(
-      `/api/v1/admin/devices/${deviceId}/credentials/${match.id}?reveal=1`
-    )
-    setReveal({ target: data.credential.target, secret: data.credential.secret || "" })
+    await revealVaulted(match.id)
   }
 
   return (
@@ -461,6 +492,32 @@ export function CredentialsManager({
         >
           Unvault selected
         </Button>
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={pending || !vaultRows.some((row) => row.secretState === "stored" || row.secretState === "decrypt_failed")}
+          onClick={() => {
+            const count = vaultRows.filter((row) => row.secretState === "stored" || row.secretState === "decrypt_failed").length
+            setConfirm({
+              title: "Clear vault secrets?",
+              message: vaultClearConfirm(count),
+              run: async () => {
+                try {
+                  const data = await api<{ cleared: number }>(`/api/v1/admin/devices/${deviceId}/credentials/clear-secrets`, {
+                    method: "POST",
+                    body: JSON.stringify({ confirm: true }),
+                  })
+                  toast.success(`Cleared ${data.cleared} secret${data.cleared === 1 ? "" : "s"}`)
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Clear failed")
+                }
+                await client.invalidateQueries({ queryKey: ["vault", deviceId] })
+              },
+            })
+          }}
+        >
+          Clear vault secrets
+        </Button>
         <Input className="max-w-xs" placeholder="Filter target or user" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
       <div className="flex flex-wrap gap-1">
@@ -540,14 +597,31 @@ export function CredentialsManager({
                     {row.persist ? <div className="text-xs text-muted-foreground">{row.persist}</div> : null}
                   </TableCell>
                   <TableCell>
-                    {row.hasSecret ? <Badge variant="secondary">encrypted</Badge> : <span className="text-muted-foreground">—</span>}
+                    <Badge variant={secretStateVariant(rowSecretState(row))}>
+                      {row.id || rowSecretState(row) === "unsupported_source"
+                        ? credentialSecretStateLabel(rowSecretState(row))
+                        : "not vaulted"}
+                    </Badge>
                     {row.backedUpAt ? <div className="text-xs text-muted-foreground">{row.backedUpAt}</div> : null}
                   </TableCell>
                   <TableCell className="w-[1%] space-x-2 whitespace-nowrap">
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={pending}
+                      disabled={
+                        pending ||
+                        !(
+                          rowSecretState(row) === "stored" ||
+                          (rowSecretState(row) === "metadata_only" && online && BACKUP_SOURCES.has(row.source))
+                        )
+                      }
+                      title={
+                        rowSecretState(row) === "stored"
+                          ? undefined
+                          : rowSecretState(row) === "metadata_only"
+                            ? "Backs up from the agent first (agent must be online)"
+                            : credentialSecretStateLabel(rowSecretState(row))
+                      }
                       onClick={() =>
                         setConfirm({
                           title: "Reveal secret?",

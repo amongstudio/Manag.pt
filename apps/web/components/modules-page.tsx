@@ -4,7 +4,13 @@ import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { BoxesIcon, ShieldCheckIcon } from "lucide-react"
 import { toast } from "sonner"
-import type { ModuleArgumentSpec, ModuleKind } from "@workspace/shared"
+import {
+  MODULE_TEMPLATES,
+  moduleTemplateRunnable,
+  type ModuleArgumentSpec,
+  type ModuleKind,
+  type ModuleTemplate,
+} from "@workspace/shared"
 
 import { api, applyOperatorAuth, formatBytes, formatWhen } from "@/lib/api"
 import {
@@ -137,6 +143,7 @@ export function ModulesPage() {
   const [runFor, setRunFor] = React.useState<ModuleRow | null>(null)
   const [approveFor, setApproveFor] = React.useState<ModuleRow | null>(null)
   const [revokeFor, setRevokeFor] = React.useState<ModuleRow | null>(null)
+  const [preset, setPreset] = React.useState<ModuleTemplate | undefined>(undefined)
 
   const patch = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
@@ -175,7 +182,13 @@ export function ModulesPage() {
           process or loads code into the main agent.
         </AlertDescription>
       </Alert>
-      <RegisterModuleCard />
+      <ModuleTemplatesCard
+        onUse={(template) => {
+          setPreset(template)
+          toast.message(`Registration form filled from ${template.registration.displayName}. Upload the vendor binary to continue.`)
+        }}
+      />
+      <RegisterModuleCard key={preset?.templateId ?? "blank"} preset={preset} />
       {modules.isError && modules.data ? (
         <QueryErrorBanner
           cached
@@ -414,17 +427,63 @@ export function ModulesPage() {
   )
 }
 
-function RegisterModuleCard() {
+function ModuleTemplatesCard({ onUse }: { onUse: (template: ModuleTemplate) => void }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Module templates</CardTitle>
+        <CardDescription>
+          Presets for read-only vendor tools. A template only fills in the registration form: you still upload the vendor
+          binary yourself, and it is signed, registered disabled, and needs approval and device grants like any other
+          module. Fixed flags are pinned as single-choice arguments.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-2">
+        {MODULE_TEMPLATES.map((template) => {
+          const runnable = moduleTemplateRunnable(template)
+          return (
+            <div key={template.templateId} className="flex flex-col gap-2 rounded-lg border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">{template.registration.displayName}</span>
+                <Badge variant="secondary">{template.registration.kind}</Badge>
+                {runnable ? null : <Badge variant="outline">catalog only, not runnable</Badge>}
+              </div>
+              <p className="text-xs text-muted-foreground">{template.description}</p>
+              <p className="font-mono text-xs text-muted-foreground">
+                {(template.registration.argumentsSchema ?? [])
+                  .map((arg) => (arg.choices?.length === 1 ? arg.choices[0] : `<${arg.name}>`))
+                  .join(" ") || "no arguments"}
+              </p>
+              <div className="mt-auto flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => onUse(template)}>
+                  Use template
+                </Button>
+                {template.sourceUrl ? (
+                  <a className="text-xs underline" href={template.sourceUrl} target="_blank" rel="noreferrer">
+                    Vendor download page
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
+}
+
+function RegisterModuleCard({ preset }: { preset?: ModuleTemplate }) {
   const client = useQueryClient()
-  const [id, setId] = React.useState("")
-  const [displayName, setDisplayName] = React.useState("")
-  const [version, setVersion] = React.useState("1.0.0")
-  const [kind, setKind] = React.useState<ModuleKind>("exe")
-  const [arch, setArch] = React.useState("amd64")
-  const [action, setAction] = React.useState("run")
-  const [timeoutSec, setTimeoutSec] = React.useState("60")
-  const [maxOutputBytes, setMaxOutputBytes] = React.useState("65536")
-  const [argumentsSchema, setArgumentsSchema] = React.useState("[]")
+  const reg = preset?.registration
+  const [id, setId] = React.useState(reg?.id ?? "")
+  const [displayName, setDisplayName] = React.useState(reg?.displayName ?? "")
+  const [version, setVersion] = React.useState(reg?.version ?? "1.0.0")
+  const [kind, setKind] = React.useState<ModuleKind>(reg?.kind ?? "exe")
+  const [arch, setArch] = React.useState<string>(reg?.arch ?? "amd64")
+  const [action, setAction] = React.useState(reg?.action ?? "run")
+  const [timeoutSec, setTimeoutSec] = React.useState(String(reg?.timeoutSec ?? 60))
+  const [maxOutputBytes, setMaxOutputBytes] = React.useState(String(reg?.maxOutputBytes ?? 65536))
+  const [argumentsSchema, setArgumentsSchema] = React.useState(JSON.stringify(reg?.argumentsSchema ?? [], null, 2))
   const [artifact, setArtifact] = React.useState<File | null>(null)
   const register = useMutation({
     mutationFn: async () => {
@@ -484,6 +543,7 @@ function RegisterModuleCard() {
         <CardDescription>
           Windows PE files only. Registration signs the execution manifest;
           approval and device grants are separate.
+          {preset ? ` Prefilled from the ${preset.registration.displayName} template; choose the vendor binary below.` : ""}
         </CardDescription>
       </CardHeader>
       <CardContent>

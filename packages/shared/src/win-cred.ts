@@ -129,6 +129,31 @@ export function parseCredentials(result: unknown): ParsedCredentials {
   }
 }
 
+/**
+ * Vault secret state per entry. `unsupported_source` covers Windows
+ * domain-password and other credential types whose blob Windows never returns
+ * to CredRead, so no backup can make them revealable.
+ */
+export const CREDENTIAL_SECRET_STATES = ["stored", "metadata_only", "decrypt_failed", "unsupported_source"] as const
+export type CredentialSecretState = (typeof CREDENTIAL_SECRET_STATES)[number]
+
+export function credentialSecretUnsupported(row: { source?: string; kind?: string }): boolean {
+  return (row.source ?? "windows") === "windows" && (row.kind === "domain" || row.kind === "other")
+}
+
+export function credentialSecretStateLabel(state: CredentialSecretState): string {
+  switch (state) {
+    case "stored":
+      return "encrypted"
+    case "metadata_only":
+      return "metadata only"
+    case "decrypt_failed":
+      return "decrypt failed"
+    case "unsupported_source":
+      return "not readable"
+  }
+}
+
 export function credentialKey(source: string, target: string, username?: string): string {
   return `${source}|${target}|${username ?? ""}`.toLowerCase()
 }
@@ -149,7 +174,9 @@ function isSecretField(key: string): boolean {
 
 /** Commands whose payload/result must not keep plaintext secrets in history, WS, or alerts. */
 export function needsSecretRedaction(type: string): boolean {
-  return isCredentialCommandType(type) || type === "smb_connect" || type === "set_bitlocker"
+  return (
+    isCredentialCommandType(type) || type === "smb_connect" || type === "set_bitlocker" || type === "local_user_action"
+  )
 }
 
 /** Strip plaintext secrets from credential command payloads/results before history or logs. */

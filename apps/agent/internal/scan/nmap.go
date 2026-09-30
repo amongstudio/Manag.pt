@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pc-manager/agent/internal/procutil"
 )
 
 var (
@@ -42,6 +44,7 @@ type Host struct {
 
 type NmapResult struct {
 	Hosts []Host `json:"hosts"`
+	Mode  string `json:"mode,omitempty"`
 }
 
 func ParseNmapXML(raw []byte) (NmapResult, error) {
@@ -147,32 +150,46 @@ func cvesFrom(script nmapScript) []CVE {
 }
 
 func NmapAvailable() bool {
-	_, err := exec.LookPath("nmap")
+	_, _, err := ResolveTool(ToolNmap)
 	return err == nil
 }
 
-func RunNmap(ctx context.Context, target string, maxRate int, timeout time.Duration, vulners bool) (NmapResult, error) {
-	if !NmapAvailable() {
-		return NmapResult{}, errors.New("nmap_unavailable")
-	}
+// NmapArgs builds the scan argv. Without raw-socket support (no Npcap on
+// Windows, non-root elsewhere) nmap cannot do SYN or OS detection, so it runs
+// an unprivileged TCP connect scan instead of failing.
+func NmapArgs(target string, maxRate int, vulners, raw bool) []string {
 	if maxRate <= 0 {
 		maxRate = 100
 	}
-	args := []string{"-sV", "-O", "-oX", "-", "--max-rate", strconvItoa(maxRate)}
+	args := []string{"-sV", "-O"}
+	if !raw {
+		args = []string{"--unprivileged", "-sT", "-sV"}
+	}
+	args = append(args, "-oX", "-", "--max-rate", strconvItoa(maxRate))
 	if vulners {
 		args = append(args, "--script", "vulners")
 	}
-	args = append(args, target)
+	return append(args, target)
+}
+
+func RunNmap(ctx context.Context, target string, maxRate int, timeout time.Duration, vulners bool) (NmapResult, error) {
+	bin, _, err := ResolveTool(ToolNmap)
+	if err != nil {
+		return NmapResult{}, err
+	}
+	raw := RawScanCapable()
+	args := NmapArgs(target, maxRate, vulners, raw)
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, "nmap", args...)
+	cmd := exec.CommandContext(runCtx, bin, args...)
+	procutil.Harden(cmd, 10*time.Second)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	if stdout.Len() == 0 {
 		if err != nil {
 			return NmapResult{}, err
@@ -182,6 +199,10 @@ func RunNmap(ctx context.Context, target string, maxRate int, timeout time.Durat
 	parsed, parseErr := ParseNmapXML(stdout.Bytes())
 	if parseErr != nil {
 		return NmapResult{}, parseErr
+	}
+	parsed.Mode = "privileged"
+	if !raw {
+		parsed.Mode = "unprivileged"
 	}
 	return parsed, nil
 }

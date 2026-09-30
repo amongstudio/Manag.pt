@@ -199,3 +199,17 @@ export async function socketOperatorOk(auth: unknown, headers: Record<string, un
   const authed = await operatorAuthorized(headers, auth)
   return authed.ok
 }
+
+/** Authenticated operator identity for sockets; `actor` is the audit name. */
+export async function socketOperatorIdentity(
+  auth: unknown,
+  headers: Record<string, unknown>
+): Promise<{ ok: boolean; actor: string }> {
+  const authed = await operatorAuthorized(headers, auth)
+  return { ok: authed.ok, actor: authed.username || "operator" }
+}
+
+export async function requestActor(req: FastifyRequest): Promise<string> {
+  const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
+  return authed.username || "operator"
+}

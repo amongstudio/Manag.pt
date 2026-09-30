@@ -17,6 +17,7 @@ import (
 	"github.com/pion/webrtc/v4/pkg/media"
 
 	"github.com/pc-manager/agent/internal/capture"
+	"github.com/pc-manager/agent/internal/cliphist"
 	"github.com/pc-manager/agent/internal/logger"
 	"github.com/pc-manager/agent/internal/notify"
 	"github.com/pc-manager/agent/internal/screenshot"
@@ -95,13 +96,24 @@ type Session struct {
 	clipRing    *clipRing
 	pendingICE  []webrtc.ICECandidateInit
 	remoteReady bool
+	inputLimit  *tokenBucket
+	clipLimit   *tokenBucket
+	throttled   atomic.Bool
+	expiry      *time.Timer
 }
 
 func New(log *logger.AgentLog, send Sender, stun string) *Session {
 	if stun == "" {
 		stun = wsprotocol.DefaultSTUN
 	}
-	s := &Session{log: log, send: send, stun: stun, clipRing: newClipRing(clipRingMax)}
+	s := &Session{
+		log:        log,
+		send:       send,
+		stun:       stun,
+		clipRing:   cliphist.Default,
+		inputLimit: newTokenBucket(inputRatePerSec, inputBurst),
+		clipLimit:  newTokenBucket(clipRatePerSec, clipBurst),
+	}
 	s.fps.Store(defaultFPS)
 	s.quality.Store(defaultQuality)
 	s.activeCodec.Store("jpeg")
@@ -157,6 +169,10 @@ func (s *Session) closeLocked() {
 	}
 	s.encMu.Unlock()
 	releaseHeldInput()
+	if s.expiry != nil {
+		s.expiry.Stop()
+		s.expiry = nil
+	}
 	if s.pc != nil {
 		_ = s.pc.Close()
 		s.pc = nil
@@ -224,6 +240,18 @@ func (s *Session) startFromOffer(msg SignalPayload) {
 	if strings.EqualFold(msg.Codec, "h264") {
 		s.reqCodec = "h264"
 	}
+	s.inputLimit.Reset()
+	s.clipLimit.Reset()
+	s.throttled.Store(false)
+	s.expiry = time.AfterFunc(maxSessionDuration, func() {
+		s.mu.Lock()
+		still := s.pc == pc
+		s.mu.Unlock()
+		if still {
+			s.log.Notef("INFO", "webrtc session reached %s limit", maxSessionDuration)
+			s.abortPC(pc, "session_expired")
+		}
+	})
 	s.mu.Unlock()
 
 	if s.reqCodec == "h264" && h264Available() && strings.Contains(msg.SDP, "m=video") {
@@ -718,7 +746,6 @@ func (s *Session) captureFailed(dc *webrtc.DataChannel, err error) {
 }
 
 func (s *Session) clipWatch(dc *webrtc.DataChannel, stop <-chan struct{}) {
-	s.pushClipHistory(dc)
 	if snap, err := capture.SnapshotClip(); err == nil {
 		s.pushClip(dc, snap)
 	}
@@ -775,20 +802,11 @@ func (s *Session) clipPoll(dc *webrtc.DataChannel, stop <-chan struct{}) {
 }
 
 func (s *Session) pushClip(dc *webrtc.DataChannel, snap capture.Clip) {
-	item := s.clipRing.PushClip(clipFromCapture(snap))
-	if dc.ReadyState() != webrtc.DataChannelStateOpen {
+	item, changed := s.clipRing.PushChanged(clipFromCapture(snap))
+	if !changed || dc.ReadyState() != webrtc.DataChannelStateOpen {
 		return
 	}
 	_ = dc.SendText(string(mustClipJSON(item)))
-}
-
-func (s *Session) pushClipHistory(dc *webrtc.DataChannel) {
-	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
-		return
-	}
-	for _, item := range s.clipRing.List() {
-		_ = dc.SendText(string(mustClipJSON(item)))
-	}
 }
 
 func (s *Session) sendStats(dc *webrtc.DataChannel, elapsed time.Duration) {
@@ -885,6 +903,13 @@ func (s *Session) handleInput(raw []byte, reply func([]byte)) {
 	}
 	switch ev.T {
 	case "clip", "clipget", "cliplist":
+		if !s.clipLimit.Allow() {
+			if reply != nil {
+				msg, _ := json.Marshal(map[string]any{"type": "clip", "ok": false, "error": "clipboard_rate_limited", "at": time.Now().UnixMilli()})
+				reply(msg)
+			}
+			return
+		}
 		if !clipSupported() {
 			if reply != nil {
 				msg, _ := json.Marshal(map[string]any{"type": "clip", "ok": false, "error": "clipboard_unavailable", "at": time.Now().UnixMilli()})
@@ -896,6 +921,16 @@ func (s *Session) handleInput(raw []byte, reply func([]byte)) {
 		return
 	}
 	if !s.allow.Load() {
+		return
+	}
+	if len(ev.Text) > inputTextMax {
+		return
+	}
+	if !s.inputLimit.Allow() {
+		if s.throttled.CompareAndSwap(false, true) && reply != nil {
+			msg, _ := json.Marshal(map[string]any{"type": "input_throttled", "at": time.Now().UnixMilli()})
+			reply(msg)
+		}
 		return
 	}
 	if !inputSupported() {
@@ -940,7 +975,7 @@ func (s *Session) handleClipInput(kind string, raw []byte, ev inputEvent, reply 
 		if item.At == 0 {
 			item.At = time.Now().UnixMilli()
 		}
-		if err := capture.SetClip(item.toCapture()); err != nil {
+		if err := capture.SetClip(clipToCapture(item)); err != nil {
 			if reply != nil {
 				msg, _ := json.Marshal(map[string]any{"type": "clip", "ok": false, "error": capture.ErrorCode(err), "at": time.Now().UnixMilli()})
 				reply(msg)

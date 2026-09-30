@@ -10,8 +10,10 @@ import {
 } from "@workspace/shared"
 
 import { dispatchQueuedCommands } from "./agent-ws.js"
+import { appendAudit } from "./audit.js"
 import { emitFleet } from "./io-emit.js"
 import { errorBody } from "./lib.js"
+import { requestActor } from "./operator-auth.js"
 import { decryptVaultSecret, prepareCredentialCommand, toPublicVault } from "./vault.js"
 
 export async function registerCredentialRoutes(app: FastifyInstance): Promise<void> {
@@ -33,13 +35,21 @@ export async function registerCredentialRoutes(app: FastifyInstance): Promise<vo
     if (!row) return reply.code(404).send(errorBody("not_found"))
     const pub = toPublicVault(row)
     if (!reveal) return { credential: pub }
-    if (!row.secretEnc) return reply.code(404).send(errorBody("secret_not_vaulted"))
+    if (pub.secretState === "unsupported_source") return reply.code(404).send(errorBody("secret_unsupported_source"))
+    if (pub.secretState === "metadata_only") return reply.code(404).send(errorBody("secret_not_vaulted"))
     let secret = ""
     try {
       secret = decryptVaultSecret(row.secretEnc)
     } catch {
-      return reply.code(500).send(errorBody("vault_decrypt_failed"))
+      return reply.code(409).send(errorBody("vault_decrypt_failed"))
     }
+    const actor = await requestActor(req)
+    await appendAudit({
+      actor,
+      action: "credential_reveal",
+      deviceId: id,
+      detail: { credId: row.id, source: row.source, kind: row.kind, target: row.target },
+    })
     app.log.info({ deviceId: id, credId: row.id, source: row.source, target: row.target }, "credential revealed")
     return { credential: { ...pub, secret } }
   })
@@ -49,8 +59,34 @@ export async function registerCredentialRoutes(app: FastifyInstance): Promise<vo
     const row = await prisma.deviceCredential.findFirst({ where: { id: credId, deviceId: id } })
     if (!row) return reply.code(404).send(errorBody("not_found"))
     await prisma.deviceCredential.delete({ where: { id: row.id } })
+    await appendAudit({
+      actor: await requestActor(req),
+      action: "credential_unvault",
+      deviceId: id,
+      detail: { credId: row.id, source: row.source, target: row.target },
+    })
     app.log.info({ deviceId: id, credId: row.id }, "vault credential deleted")
     return { ok: true, id: row.id }
+  })
+
+  app.post(`${API_PREFIX}/admin/devices/:id/credentials/clear-secrets`, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = (req.body ?? {}) as { confirm?: unknown }
+    if (body.confirm !== true) return reply.code(400).send(errorBody("confirm_required"))
+    const device = await prisma.device.findUnique({ where: { id }, select: { id: true } })
+    if (!device) return reply.code(404).send(errorBody("not_found"))
+    const cleared = await prisma.deviceCredential.updateMany({
+      where: { deviceId: id, secretEnc: { not: "" } },
+      data: { secretEnc: "" },
+    })
+    await appendAudit({
+      actor: await requestActor(req),
+      action: "credential_vault_clear",
+      deviceId: id,
+      detail: { cleared: cleared.count },
+    })
+    app.log.info({ deviceId: id, cleared: cleared.count }, "vault secrets cleared")
+    return { ok: true, cleared: cleared.count }
   })
 
   app.post(`${API_PREFIX}/admin/devices/:id/credentials/backup`, async (req, reply) => {

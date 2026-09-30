@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto"
 
 import type { FastifyInstance, FastifyRequest } from "fastify"
 import { Prisma, prisma } from "@workspace/db"
-import { API_PREFIX } from "@workspace/shared"
+import { API_PREFIX, SCRIPT_TEMPLATES, resolveTemplateParameters, scriptTemplateById } from "@workspace/shared"
 
 import { appendAudit, listAudit } from "./audit.js"
 import { assistantNeedsConfirm, assistantPrompt, parseAssistantText, type AssistantAction } from "./assistant-lib.js"
@@ -14,7 +14,7 @@ import { normalizeMetrics, storeMetrics } from "./metrics.js"
 import { operatorAuthorized } from "./operator-auth.js"
 import { parseCron } from "./cron-match.js"
 import { queueScriptRun } from "./scripts-run.js"
-import { validateScriptWrite, type ScriptLanguage } from "./scripts-lib.js"
+import { ScriptParameterError, validateScriptWrite, type ScriptLanguage } from "./scripts-lib.js"
 import { getSettings } from "./settings.js"
 import { openaiChatCompletionsUrl } from "./chat.js"
 import { inMaintenanceWindow, nextUpdateApproval, normalizeKb, type RebootPolicy, REBOOT_POLICIES } from "./updates-lib.js"
@@ -72,6 +72,8 @@ export async function registerPlatformRoutes(app: FastifyInstance): Promise<void
     return { scripts }
   })
 
+  app.get(`${API_PREFIX}/admin/script-templates`, async () => ({ templates: SCRIPT_TEMPLATES }))
+
   app.post(`${API_PREFIX}/admin/scripts`, async (req, reply) => {
     const parsed = validateScriptWrite(req.body)
     if (!parsed.ok) return reply.code(400).send(errorBody(parsed.error))
@@ -121,22 +123,46 @@ export async function registerPlatformRoutes(app: FastifyInstance): Promise<void
     if (!device) return reply.code(404).send(errorBody("not_found"))
     const body = (req.body ?? {}) as Record<string, unknown>
     const actor = await actorOf(req)
-    if (typeof body.scriptId === "string") {
-      const script = await prisma.script.findUnique({ where: { id: body.scriptId } })
-      if (!script) return reply.code(404).send(errorBody("script_not_found"))
-      const provided = body.parameters && typeof body.parameters === "object" ? (body.parameters as Record<string, string>) : {}
-      const queued = await queueScriptRun(app, {
+    const provided =
+      body.parameters && typeof body.parameters === "object" && !Array.isArray(body.parameters)
+        ? (body.parameters as Record<string, unknown>)
+        : {}
+    if (typeof body.templateId === "string") {
+      const template = scriptTemplateById(body.templateId)
+      if (!template) return reply.code(404).send(errorBody("template_not_found"))
+      const resolved = resolveTemplateParameters(template, provided)
+      if (!resolved.ok) return reply.code(400).send(errorBody(resolved.error))
+      return queueScriptRun(app, {
         deviceId: id,
         actor,
         trigger: "on_demand",
-        scriptId: script.id,
-        language: script.language as ScriptLanguage,
-        content: script.content,
-        timeoutSeconds: script.timeoutSeconds,
-        parameters: JSON.parse(script.parameters),
-        provided,
+        templateId: template.id,
+        language: template.language,
+        content: template.content,
+        timeoutSeconds: template.timeoutSeconds,
+        parameters: template.parameters.map((p) => ({ name: p.name, default: p.default, pattern: p.pattern })),
+        provided: resolved.values,
       })
-      return queued
+    }
+    if (typeof body.scriptId === "string") {
+      const script = await prisma.script.findUnique({ where: { id: body.scriptId } })
+      if (!script) return reply.code(404).send(errorBody("script_not_found"))
+      try {
+        return await queueScriptRun(app, {
+          deviceId: id,
+          actor,
+          trigger: "on_demand",
+          scriptId: script.id,
+          language: script.language as ScriptLanguage,
+          content: script.content,
+          timeoutSeconds: script.timeoutSeconds,
+          parameters: JSON.parse(script.parameters),
+          provided,
+        })
+      } catch (error) {
+        if (error instanceof ScriptParameterError) return reply.code(400).send(errorBody(error.message))
+        throw error
+      }
     }
     const adhoc = validateScriptWrite({
       name: "adhoc",

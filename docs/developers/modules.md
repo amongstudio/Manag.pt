@@ -16,6 +16,12 @@ Arbitrary-process DLL injection, process hollowing, reflective loading, and remo
 
 The main agent never loads module DLLs. No command payload contains raw artifact bytes, a local server path, or an operator-supplied URL.
 
+## Templates
+
+`MODULE_TEMPLATES` in `packages/shared/src/modules.ts` are registration presets for read-only vendor tools: Sysinternals Sigcheck, Autorunsc, and Disk Usage, plus one catalog-only DLL example. Each preset is a `ModuleRegistrationInput` that passes `moduleRegistrationSchema` (a unit test checks this). Fixed flags such as `-accepteula` are pinned as single-value `choices`, so a run cannot add other flags there.
+
+A template never ships or downloads an artifact. **Use template** on Modules only fills in the registration form. The operator uploads the vendor binary, and the normal PE checks, manifest signing, disabled-by-default state, approval, and grants all still apply. `moduleTemplateRunnable` is true only for `exe` presets, and the DLL preset is labeled catalog only.
+
 ## API and data
 
 - `GET/POST /api/v1/admin/modules`

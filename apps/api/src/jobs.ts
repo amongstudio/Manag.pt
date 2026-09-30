@@ -4,7 +4,7 @@ import { promisify } from "node:util"
 
 import type { FastifyInstance } from "fastify"
 import cron from "node-cron"
-import { DESTRUCTIVE_COMMANDS, WS_EVENTS } from "@workspace/shared"
+import { DESTRUCTIVE_COMMANDS, WS_EVENTS, summarizeClipboardResult } from "@workspace/shared"
 import { prisma } from "@workspace/db"
 
 import { moduleIdFromPayload, pluginIdFromPayload, runningCommandTimeoutMs } from "./command-policy.js"
@@ -14,6 +14,7 @@ import { enqueueAlert, flushNotifications } from "./notify.js"
 import { runPlatformJobs } from "./platform-jobs.js"
 import { expireRemoteSessions } from "./remote-session.js"
 import { getSettings } from "./settings.js"
+import { expireWebrtcRelaySessions, hangupExpiredWebrtc } from "./ws.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -109,6 +110,33 @@ async function expirePendingDestructive(app: FastifyInstance): Promise<void> {
       status: "cancelled",
       result: { error: "expired" },
     })
+  }
+}
+
+const CLIPBOARD_RESULT_TTL_MS = 15 * 60_000
+
+/** Clipboard contents are kept only long enough for the operator to view them. */
+async function purgeClipboardResults(): Promise<void> {
+  const rows = await prisma.command.findMany({
+    where: {
+      type: "get_clipboard",
+      status: { in: ["success", "failed", "cancelled"] },
+      updatedAt: { lt: new Date(Date.now() - CLIPBOARD_RESULT_TTL_MS) },
+      NOT: { result: { contains: '"redacted":true' } },
+    },
+    select: { id: true, result: true },
+    take: 200,
+  })
+  for (const row of rows) {
+    let parsed: unknown = null
+    try {
+      parsed = row.result ? JSON.parse(row.result) : null
+    } catch {
+      parsed = null
+    }
+    const summary = summarizeClipboardResult(parsed)
+    const safe = summary && typeof summary === "object" ? summary : { redacted: true }
+    await prisma.command.update({ where: { id: row.id }, data: { result: JSON.stringify(safe) } })
   }
 }
 
@@ -309,6 +337,8 @@ async function runFastTicks(app: FastifyInstance): Promise<void> {
   await timeoutStuckCommands(app).catch((error) => app.log.error(error))
   await expirePendingDestructive(app).catch((error) => app.log.error(error))
   await pruneAbandonedTransfers().catch((error) => app.log.error(error))
-  await expireRemoteSessions().catch((error) => app.log.error(error))
+  expireWebrtcRelaySessions(app)
+  await expireRemoteSessions(hangupExpiredWebrtc).catch((error) => app.log.error(error))
+  await purgeClipboardResults().catch((error) => app.log.error(error))
   await runPlatformJobs(app).catch((error) => app.log.error(error))
 }

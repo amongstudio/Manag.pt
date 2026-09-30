@@ -51,6 +51,12 @@ var neverCommands = map[string]struct{}{
 	"network_scan":           {},
 	"nuclei_scan":            {},
 	"apply_config":           {},
+	"install_app":            {},
+	"uninstall_app":          {},
+	"get_clipboard":          {},
+	"get_local_users":        {},
+	"local_user_action":      {},
+	"install_scan_tool":      {},
 }
 
 func DefaultPolicy() Policy {

@@ -6,10 +6,21 @@ Module `github.com/pc-manager/agent`, Go **1.25+**. Entry `apps/agent/cmd/agent`
 
 Scan-related types:
 
-- `network_scan` — `internal/scan.RunNmap` after `AuthorizeTarget`. Error `nmap_unavailable` when `nmap` is not on `PATH`
+- `network_scan` — `internal/scan.RunNmap` after `AuthorizeTarget`. Error `nmap_unavailable` when `scan.ResolveTool` finds no binary. `NmapArgs` picks `--unprivileged -sT` when Npcap is missing
 - `nuclei_scan` — `TargetHost` + `NucleiURL`, then nuclei with the fixed safe arguments. Error `nuclei_unavailable`
-- `host_posture` — read-only Winlogon `AutoAdminLogon` and LanmanServer `SMB1` when the registry read works; reports whether `trivy` is on `PATH`
+- `host_posture` — read-only Winlogon `AutoAdminLogon` and LanmanServer `SMB1` when the registry read works, plus `trivy fs` over the scope's `trivy_paths`
+- `get_scan_tools` / `install_scan_tool` — `scan.Status` and `scan.InstallTool`. Resolution order: managed dir `<DataDir>/tools/<tool>/<version>`, service `PATH`, machine `PATH` from the registry, Program Files. Pinned releases (URL + SHA-256) live in `scan/install.go`; downloads are hash-checked before extraction, and extraction rejects path traversal and oversized archives
 - `collect_inventory` — `internal/inventory.Collect`
+
+Admin packages added alongside the scanners, all using argument arrays and no shell:
+
+- `internal/software` — `install_app` / `uninstall_app`: regex allowlists, winget resolution, MSI `/x` by product code, and quiet uninstall strings only when they are an absolute non-shell `.exe`
+- `internal/localusers` — `get_local_users` / `local_user_action` through `NetUserEnum`/`NetUserGetInfo`/`NetUserSetInfo`. Local SAM only, refused on domain controllers, last enabled admin protected, and the password buffer is zeroed
+- `internal/netconn` — `get_connections`: gopsutil socket table plus interface and per-process I/O counters, capped at 1000 rows. Metadata only
+- `internal/cliphist` — the in-memory clipboard ring (50 entries) shared by the desktop session and `get_clipboard`, with content-key dedupe
+- `internal/desktop/limit.go` — token buckets for datachannel input and clipboard requests, and the 8-hour session limit
+
+All of these except `get_scan_tools` and `get_connections` are in `MESH_NEVER_COMMANDS`.
 
 `internal/scan` parses Nmap XML and Nuclei JSONL. Tests use `apps/agent/testdata`. They do not scan the network.
 

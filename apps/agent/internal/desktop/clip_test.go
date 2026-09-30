@@ -24,21 +24,17 @@ func TestClipRingDedupesAndCaps(t *testing.T) {
 	if got := r.LastText(); got != "a" {
 		t.Fatalf("last=%q", got)
 	}
-	r.mu.Lock()
-	n := len(r.items)
-	r.mu.Unlock()
-	if n != 1 {
+	if n := r.Len(); n != 1 {
 		t.Fatalf("dedupe size=%d", n)
 	}
 	r.Push("b")
 	r.Push("c")
 	r.Push("d")
-	r.mu.Lock()
-	texts := make([]string, len(r.items))
-	for i, it := range r.items {
+	list := r.List()
+	texts := make([]string, len(list))
+	for i, it := range list {
 		texts[i] = it.Text
 	}
-	r.mu.Unlock()
 	if len(texts) != 3 || texts[0] != "b" || texts[2] != "d" {
 		t.Fatalf("ring=%v", texts)
 	}
@@ -48,10 +44,9 @@ func TestClipRingStoresKind(t *testing.T) {
 	r := newClipRing(4)
 	r.PushClip(clipItem{Kind: "html", Text: "x", HTML: "<b>x</b>"})
 	r.PushClip(clipItem{Kind: "files", Files: []string{`C:\a.txt`}})
-	r.mu.Lock()
-	n := len(r.items)
-	last := r.items[n-1]
-	r.mu.Unlock()
+	list := r.List()
+	n := len(list)
+	last := list[n-1]
 	if n != 2 || last.Kind != "files" || len(last.Files) != 1 {
 		t.Fatalf("n=%d last=%+v", n, last)
 	}

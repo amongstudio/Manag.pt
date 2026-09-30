@@ -23,8 +23,18 @@ import { closeE2ESession } from "./e2e-relay.js"
 import { emitDevice } from "./io-emit.js"
 import { env } from "./env.js"
 import { clientIp, ipAllowed } from "./lib.js"
-import { socketOperatorOk } from "./operator-auth.js"
+import { socketOperatorIdentity } from "./operator-auth.js"
 import { dropWebrtcSession, touchWebrtcSession } from "./remote-session.js"
+import {
+  allowWebrtcSignal,
+  claimWebrtcSession,
+  expiredWebrtcSessions,
+  forgetWebrtcSignalBudget,
+  ownsWebrtcSession,
+  releaseWebrtcSession,
+  releaseWebrtcSessionsForSocket,
+  webrtcSessionFor,
+} from "./webrtc-relay.js"
 import {
   closeShellSession,
   closeShellSessionsForSocket,
@@ -41,6 +51,28 @@ declare module "fastify" {
 type SocketData = {
   deviceRooms: Set<string>
   e2eDevices: Set<string>
+  actor: string
+}
+
+function hangupAgentWebrtc(deviceId: string, reason = "operator_disconnect"): void {
+  sendToAgent(deviceId, { type: "webrtc_signal", payload: { kind: "hangup", reason } })
+}
+
+/** Ends expired relay sessions: agent hangup plus a notice to the owner socket. */
+export function expireWebrtcRelaySessions(app: FastifyInstance): void {
+  for (const session of expiredWebrtcSessions()) {
+    hangupAgentWebrtc(session.deviceId, "session_expired")
+    app.io.to(session.socketId).emit(WS_EVENTS.WEBRTC_SIGNAL, {
+      deviceId: session.deviceId,
+      payload: { kind: "hangup", error: "session_expired", reason: "session_expired" },
+    })
+    void dropWebrtcSession(session.deviceId, { actor: session.actor, reason: "session_expired" }).catch(() => undefined)
+  }
+}
+
+export function hangupExpiredWebrtc(deviceId: string): void {
+  releaseWebrtcSession(deviceId)
+  hangupAgentWebrtc(deviceId, "session_expired")
 }
 
 function asRecord(raw: unknown): Record<string, unknown> | null {
@@ -92,10 +124,12 @@ export function attachSocket(app: FastifyInstance): Server {
       next(new Error("ip_not_allowed"))
       return
     }
-    if (!(await socketOperatorOk(socket.handshake.auth, socket.request.headers as Record<string, unknown>))) {
+    const identity = await socketOperatorIdentity(socket.handshake.auth, socket.request.headers as Record<string, unknown>)
+    if (!identity.ok) {
       next(new Error("unauthorized"))
       return
     }
+    ;(socket.data as SocketData).actor = identity.actor
     if (!allowConnect(ip)) {
       next(new Error("rate_limited"))
       return
@@ -107,6 +141,14 @@ export function attachSocket(app: FastifyInstance): Server {
     const data = socket.data as SocketData
     data.deviceRooms = new Set()
     data.e2eDevices = new Set()
+    data.actor ||= "operator"
+
+    const endOwnedWebrtc = (deviceId: string, reason: string) => {
+      if (!ownsWebrtcSession(deviceId, socket.id)) return
+      releaseWebrtcSession(deviceId)
+      hangupAgentWebrtc(deviceId)
+      void dropWebrtcSession(deviceId, { actor: data.actor, reason }).catch(() => undefined)
+    }
 
     socket.on(WS_CLIENT_EVENTS.ATTACH, async (raw: unknown, ack?: (value: unknown) => void) => {
       try {
@@ -136,6 +178,7 @@ export function attachSocket(app: FastifyInstance): Server {
               sendToAgent(deviceId, { type: AGENT_WS_TYPE.shell_close, reason: "operator_detach" })
               emitDevice(app, deviceId, WS_EVENTS.SHELL_CLOSE, { deviceId, reason: "operator_detach" })
             }
+            if (deviceId) endOwnedWebrtc(deviceId, "operator_detach")
           }
         }
         data.deviceRooms = nextRooms
@@ -157,6 +200,7 @@ export function attachSocket(app: FastifyInstance): Server {
           sendToAgent(id, { type: AGENT_WS_TYPE.shell_close, reason: "operator_detach" })
           emitDevice(app, id, WS_EVENTS.SHELL_CLOSE, { deviceId: id, reason: "operator_detach" })
         }
+        endOwnedWebrtc(id, "operator_detach")
       }
     })
 
@@ -169,19 +213,47 @@ export function attachSocket(app: FastifyInstance): Server {
       const deviceId = parsed.data.deviceId
       if (!deviceId) return
       if (!socket.rooms.has(wsDeviceRoom(deviceId))) return
-      const kind = asRecord(parsed.data.payload)?.kind
-      const kindText = typeof kind === "string" ? kind : undefined
+      const signal = asRecord(parsed.data.payload)
+      const kindText = typeof signal?.kind === "string" ? signal.kind : undefined
+      const refuse = (reason: string) =>
+        socket.emit(WS_EVENTS.WEBRTC_SIGNAL, { deviceId, payload: { kind: "hangup", error: reason, reason } })
+      if (!allowWebrtcSignal(socket.id)) {
+        refuse("signal_rate_limited")
+        return
+      }
+      const allowInput = typeof signal?.allowInput === "boolean" ? signal.allowInput : undefined
+      if (kindText === "offer") {
+        const { fresh, replaced } = claimWebrtcSession(deviceId, socket.id, data.actor)
+        if (replaced) {
+          app.io.to(replaced.socketId).emit(WS_EVENTS.WEBRTC_SIGNAL, {
+            deviceId,
+            payload: { kind: "hangup", error: "session_replaced", reason: "session_replaced" },
+          })
+        }
+        if (fresh) {
+          void dropWebrtcSession(deviceId, {
+            actor: replaced?.actor,
+            reason: replaced ? "session_replaced" : "session_restarted",
+          }).catch(() => undefined)
+        }
+      } else if (!ownsWebrtcSession(deviceId, socket.id)) {
+        if (kindText !== "hangup") refuse(webrtcSessionFor(deviceId) ? "session_not_owned" : "session_expired")
+        return
+      }
       if (kindText === "hangup") {
-        void dropWebrtcSession(deviceId).catch(() => undefined)
+        releaseWebrtcSession(deviceId)
+        void dropWebrtcSession(deviceId, { actor: data.actor, reason: "operator_hangup" }).catch(() => undefined)
       } else {
-        void touchWebrtcSession(deviceId, kindText).catch(() => undefined)
+        void touchWebrtcSession(deviceId, kindText, { actor: data.actor, allowInput }).catch(() => undefined)
       }
       const sent = sendToAgent(deviceId, {
         type: "webrtc_signal",
         payload: parsed.data.payload,
       })
       if (!sent) {
-        emitDevice(app, deviceId, WS_EVENTS.WEBRTC_SIGNAL, {
+        releaseWebrtcSession(deviceId)
+        void dropWebrtcSession(deviceId, { actor: data.actor, reason: "agent_offline" }).catch(() => undefined)
+        socket.emit(WS_EVENTS.WEBRTC_SIGNAL, {
           deviceId,
           payload: { kind: "hangup", error: "agent_offline", reason: "agent_offline" },
         })
@@ -312,6 +384,11 @@ export function attachSocket(app: FastifyInstance): Server {
         sendToAgent(deviceId, { type: AGENT_WS_TYPE.shell_close, reason: "operator_disconnect" })
         emitDevice(app, deviceId, WS_EVENTS.SHELL_CLOSE, { deviceId, reason: "operator_disconnect" })
       }
+      for (const session of releaseWebrtcSessionsForSocket(socket.id)) {
+        hangupAgentWebrtc(session.deviceId)
+        void dropWebrtcSession(session.deviceId, { actor: session.actor, reason: "operator_disconnect" }).catch(() => undefined)
+      }
+      forgetWebrtcSignalBudget(socket.id)
     })
   })
 

@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/pc-manager/agent/internal/procutil"
 )
 
 type TrivyFinding struct {
@@ -23,8 +25,29 @@ func TrivyArgs(path string) []string {
 }
 
 func TrivyAvailable() bool {
-	_, err := exec.LookPath("trivy")
+	_, _, err := ResolveTool(ToolTrivy)
 	return err == nil
+}
+
+func trivyArgsWithCache(path, cache string) []string {
+	args := TrivyArgs(path)
+	if cache == "" {
+		return args
+	}
+	return append([]string{args[0], "--cache-dir", cache}, args[1:]...)
+}
+
+// classifyTrivyError maps trivy stderr to a stable error code.
+func classifyTrivyError(stderr string) string {
+	lower := strings.ToLower(stderr)
+	switch {
+	case strings.Contains(lower, "skip-db-update") || strings.Contains(lower, "cannot skip downloading db") || strings.Contains(lower, "db error") || strings.Contains(lower, "trivy.db"):
+		return "trivy_db_missing"
+	case strings.Contains(lower, "deadline exceeded") || strings.Contains(lower, "timeout"):
+		return "trivy_timeout"
+	default:
+		return "trivy_failed"
+	}
 }
 
 func ParseTrivyJSON(raw []byte) ([]TrivyFinding, error) {
@@ -60,17 +83,30 @@ func ParseTrivyJSON(raw []byte) ([]TrivyFinding, error) {
 	return out, nil
 }
 
-func RunTrivy(ctx context.Context, path string) ([]TrivyFinding, error) {
-	if !TrivyAvailable() {
-		return nil, errors.New("trivy_unavailable")
+func RunTrivy(ctx context.Context, path string, timeout time.Duration) ([]TrivyFinding, error) {
+	bin, _, err := ResolveTool(ToolTrivy)
+	if err != nil {
+		return nil, err
 	}
-	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	cache := ""
+	if trivyDBPresent() {
+		cache = managedCacheDir(ToolTrivy)
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, "trivy", TrivyArgs(path)...)
-	var stdout bytes.Buffer
+	cmd := exec.CommandContext(runCtx, bin, trivyArgsWithCache(path, cache)...)
+	procutil.Harden(cmd, 10*time.Second)
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil && stdout.Len() == 0 {
-		return nil, errors.New("trivy_unavailable")
+		if runCtx.Err() != nil {
+			return nil, errors.New("trivy_timeout")
+		}
+		return nil, errors.New(classifyTrivyError(stderr.String()))
 	}
 	return ParseTrivyJSON(stdout.Bytes())
 }

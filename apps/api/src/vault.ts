@@ -2,12 +2,14 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:cr
 
 import { prisma } from "@workspace/db"
 import {
+  credentialSecretUnsupported,
   isCredentialCommandType,
   MESH_FORWARD_KEY,
   needsSecretRedaction,
   redactCredentialCommand,
   stripCredentialSecrets,
   stripMeshCommandSecrets,
+  type CredentialSecretState,
   type VaultCredential,
 } from "@workspace/shared"
 
@@ -226,8 +228,10 @@ export async function prepareCredentialCommand(
   return sealCommandPayload(type, payload)
 }
 
+const SEALED_PASSWORD_COMMANDS = new Set(["smb_connect", "set_bitlocker", "local_user_action"])
+
 export function sealCommandPayload(type: string, payload: Record<string, unknown>): Record<string, unknown> {
-  if (type === "smb_connect" || type === "set_bitlocker") {
+  if (SEALED_PASSWORD_COMMANDS.has(type)) {
     if (typeof payload[MESH_FORWARD_KEY] === "string" && payload[MESH_FORWARD_KEY]) {
       return stripMeshCommandSecrets(type, payload)
     }
@@ -266,7 +270,7 @@ export function sealCommandPayload(type: string, payload: Record<string, unknown
 export function hydrateCommandPayload(type: string, payload: unknown): unknown {
   const row = asRecord(payload)
   if (!row) return payload
-  if ((type === "smb_connect" || type === "set_bitlocker") && (row.passwordEnc || row.recoveryPasswordEnc)) {
+  if (SEALED_PASSWORD_COMMANDS.has(type) && (row.passwordEnc || row.recoveryPasswordEnc)) {
     const next: Record<string, unknown> = { ...row }
     if (typeof row.passwordEnc === "string" && !row.password) {
       try {
@@ -326,7 +330,19 @@ export function serializeCredentialCommand<T extends { type?: string; payload: u
 export type PublicVaultCredential = Omit<VaultCredential, "secret"> & {
   id: string
   hasSecret: boolean
+  secretState: CredentialSecretState
   backedUpAt: string
+}
+
+/** Decrypts only to verify the GCM tag; the plaintext is discarded. */
+export function vaultSecretState(row: { source: string; kind: string; secretEnc: string }): CredentialSecretState {
+  if (!row.secretEnc) return credentialSecretUnsupported(row) ? "unsupported_source" : "metadata_only"
+  try {
+    decryptVaultSecret(row.secretEnc)
+    return "stored"
+  } catch {
+    return "decrypt_failed"
+  }
 }
 
 export function toPublicVault(row: {
@@ -344,6 +360,7 @@ export function toPublicVault(row: {
   secretEnc: string
   backedUpAt: Date
 }): PublicVaultCredential {
+  const secretState = vaultSecretState(row)
   return {
     id: row.id,
     key: row.credKey,
@@ -356,7 +373,8 @@ export function toPublicVault(row: {
     browser: row.browser || undefined,
     profile: row.profile || undefined,
     lastWritten: row.lastWritten || undefined,
-    hasSecret: Boolean(row.secretEnc),
+    hasSecret: secretState === "stored",
+    secretState,
     backedUpAt: row.backedUpAt.toISOString(),
   }
 }

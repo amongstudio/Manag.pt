@@ -14,7 +14,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "tsx --test src/schemas.test.ts src/compile.test.ts src/file-listing.test.ts src/win-admin.test.ts src/win-native.test.ts src/win-smb.test.ts src/lan.test.ts src/mesh.test.ts src/win-cred.test.ts"
+    "test": "tsx --test src/schemas.test.ts src/compile.test.ts src/file-listing.test.ts src/win-admin.test.ts src/win-native.test.ts src/win-smb.test.ts src/lan.test.ts src/mesh.test.ts src/win-cred.test.ts src/admin-actions.test.ts"
   },
   "dependencies": {
     "zod": "^4.4.3"

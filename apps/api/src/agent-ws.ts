@@ -51,6 +51,7 @@ import { clientIp, hmacSha256Hex, safeEqual } from "./lib.js"
 import { normalizeMetrics, storeMetrics } from "./metrics.js"
 import { afterPeerCommandIngest } from "./peer-copy.js"
 import { dropWebrtcSession, touchWebrtcSession } from "./remote-session.js"
+import { releaseWebrtcSession, webrtcSessionFor } from "./webrtc-relay.js"
 import { ingestScreenshotBytes } from "./screenshot-ingest.js"
 import { closeShellSession } from "./shell-relay.js"
 import { consumeWsChallenge } from "./ws-challenge.js"
@@ -523,14 +524,19 @@ export async function registerAgentWs(app: FastifyInstance): Promise<void> {
           if (type === AGENT_WS_TYPE.webrtc_signal) {
             const signal = webrtcSignalFrameSchema.safeParse(parsed)
             if (!signal.success) return
-            const payload = signal.data.payload as { kind?: unknown }
+            const payload = signal.data.payload as { kind?: unknown; reason?: unknown; error?: unknown }
             const kind = typeof payload.kind === "string" ? payload.kind : undefined
+            const owner = webrtcSessionFor(device.id)
             if (kind === "hangup") {
-              void dropWebrtcSession(device.id).catch(() => undefined)
-            } else {
+              if (owner) releaseWebrtcSession(device.id)
+              const reason = typeof payload.reason === "string" ? payload.reason : typeof payload.error === "string" ? payload.error : "agent_hangup"
+              void dropWebrtcSession(device.id, { reason: `agent:${reason.slice(0, 60)}` }).catch(() => undefined)
+            } else if (owner) {
               void touchWebrtcSession(device.id, kind).catch(() => undefined)
             }
-            emitDevice(app, device.id, WS_EVENTS.WEBRTC_SIGNAL, { deviceId: device.id, payload: signal.data.payload })
+            const frame = { deviceId: device.id, payload: signal.data.payload }
+            if (owner) app.io.to(owner.socketId).emit(WS_EVENTS.WEBRTC_SIGNAL, frame)
+            else emitDevice(app, device.id, WS_EVENTS.WEBRTC_SIGNAL, frame)
             return
           }
           if (type === AGENT_WS_TYPE.mesh_signal) {

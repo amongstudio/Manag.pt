@@ -19,6 +19,9 @@ type Scope struct {
 	LabMode            *bool    `yaml:"lab_mode"`
 	LabNetworks        []string `yaml:"lab_networks"`
 	EnableVulners      bool     `yaml:"enable_vulners"`
+	// Absolute directories for the host_posture trivy scan. Unset uses
+	// Program Files (Windows) or /opt and /usr/local; [] disables it.
+	TrivyPaths []string `yaml:"trivy_paths"`
 }
 
 func DefaultScope() Scope {

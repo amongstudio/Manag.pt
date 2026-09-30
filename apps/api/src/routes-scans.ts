@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify"
 import { Prisma, prisma } from "@workspace/db"
-import { API_PREFIX } from "@workspace/shared"
+import { API_PREFIX, SCAN_TOOL_KINDS, type ScanTool } from "@workspace/shared"
 
 import { appendAudit } from "./audit.js"
 import { queueDeviceCommand } from "./command-queue.js"
@@ -10,6 +10,9 @@ import { authorizeTarget, authorizeURL, loadScanScope } from "./scan-scope.js"
 import { cacheFresh, nextManualStatus } from "./findings-lib.js"
 import { postureFindings } from "./posture-lib.js"
 import { storedPosture, upsertFindings } from "./scan-store.js"
+
+const SCAN_TOOL_KIND: Partial<Record<ScanTool, string>> = SCAN_TOOL_KINDS
+const SCAN_KINDS = new Set(Object.values(SCAN_TOOL_KINDS))
 
 async function actorOf(headers: Record<string, unknown>): Promise<string> {
   const authed = await operatorAuthorized(headers)
@@ -82,8 +85,22 @@ export async function registerScanRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
-  app.get(`${API_PREFIX}/admin/scans`, async () => {
-    const scans = await prisma.scan.findMany({ orderBy: { createdAt: "desc" }, take: 100 })
+  app.get(`${API_PREFIX}/admin/scans`, async (req, reply) => {
+    const q = req.query as { deviceId?: string; tool?: string; kind?: string; limit?: string }
+    let kind: string | undefined
+    if (q.tool) {
+      kind = SCAN_TOOL_KIND[q.tool as ScanTool]
+      if (!kind) return reply.code(400).send(errorBody("invalid_tool"))
+    } else if (q.kind) {
+      if (!SCAN_KINDS.has(q.kind)) return reply.code(400).send(errorBody("invalid_kind"))
+      kind = q.kind
+    }
+    const limit = Math.min(Math.max(Number.parseInt(q.limit ?? "", 10) || 100, 1), 200)
+    const scans = await prisma.scan.findMany({
+      where: { deviceId: q.deviceId || undefined, kind },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    })
     return { scans }
   })
 
@@ -182,16 +199,23 @@ export async function registerScanRoutes(app: FastifyInstance): Promise<void> {
     const script = await prisma.script.findUnique({ where: { id: row.scriptId } })
     if (!script) return reply.code(404).send(errorBody("script_not_found"))
     const { queueScriptRun } = await import("./scripts-run.js")
-    const queued = await queueScriptRun(app, {
-      deviceId: row.deviceId,
-      actor: await actorOf(req.headers as Record<string, unknown>),
-      trigger: "on_demand",
-      scriptId: script.id,
-      language: script.language as "powershell" | "python" | "batch" | "shell",
-      content: script.content,
-      timeoutSeconds: script.timeoutSeconds,
-      parameters: JSON.parse(script.parameters),
-    })
+    const { ScriptParameterError } = await import("./scripts-lib.js")
+    let queued: { runId: string; commandId: string }
+    try {
+      queued = await queueScriptRun(app, {
+        deviceId: row.deviceId,
+        actor: await actorOf(req.headers as Record<string, unknown>),
+        trigger: "on_demand",
+        scriptId: script.id,
+        language: script.language as "powershell" | "python" | "batch" | "shell",
+        content: script.content,
+        timeoutSeconds: script.timeoutSeconds,
+        parameters: JSON.parse(script.parameters),
+      })
+    } catch (error) {
+      if (error instanceof ScriptParameterError) return reply.code(400).send(errorBody(error.message))
+      throw error
+    }
     const finding = await prisma.finding.update({ where: { id }, data: { status: next } })
     await appendAudit({
       actor: await actorOf(req.headers as Record<string, unknown>),
