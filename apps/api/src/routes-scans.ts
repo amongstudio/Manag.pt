@@ -7,7 +7,7 @@ import { queueDeviceCommand } from "./command-queue.js"
 import { errorBody } from "./lib.js"
 import { operatorAuthorized } from "./operator-auth.js"
 import { authorizeTarget, authorizeURL, loadScanScope } from "./scan-scope.js"
-import { cacheFresh } from "./findings-lib.js"
+import { cacheFresh, nextManualStatus } from "./findings-lib.js"
 import { postureFindings } from "./posture-lib.js"
 import { storedPosture, upsertFindings } from "./scan-store.js"
 
@@ -126,11 +126,30 @@ export async function registerScanRoutes(app: FastifyInstance): Promise<void> {
     return { findings }
   })
 
+  app.post(`${API_PREFIX}/admin/findings/:id/link`, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const scriptId = typeof (req.body as { scriptId?: string })?.scriptId === "string" ? (req.body as { scriptId: string }).scriptId : ""
+    const row = await prisma.finding.findUnique({ where: { id } })
+    if (!row) return reply.code(404).send(errorBody("not_found"))
+    const script = scriptId ? await prisma.script.findUnique({ where: { id: scriptId } }) : null
+    if (scriptId && !script) return reply.code(404).send(errorBody("script_not_found"))
+    const finding = await prisma.finding.update({ where: { id }, data: { scriptId: script?.id ?? null } })
+    await appendAudit({
+      actor: await actorOf(req.headers as Record<string, unknown>),
+      action: "finding_link_script",
+      deviceId: row.deviceId,
+      detail: { id, scriptId: script?.id ?? null },
+    })
+    return { finding }
+  })
+
   app.post(`${API_PREFIX}/admin/findings/:id/acknowledge`, async (req, reply) => {
     const { id } = req.params as { id: string }
     const row = await prisma.finding.findUnique({ where: { id } })
     if (!row) return reply.code(404).send(errorBody("not_found"))
-    const finding = await prisma.finding.update({ where: { id }, data: { status: "acknowledged" } })
+    const next = nextManualStatus(row.status, "acknowledge")
+    if (!next) return reply.code(409).send(errorBody("invalid_transition", { from: row.status }))
+    const finding = await prisma.finding.update({ where: { id }, data: { status: next } })
     await appendAudit({ actor: await actorOf(req.headers as Record<string, unknown>), action: "finding_acknowledge", deviceId: row.deviceId, detail: { id } })
     return { finding }
   })
@@ -141,7 +160,9 @@ export async function registerScanRoutes(app: FastifyInstance): Promise<void> {
     if (!reason.trim()) return reply.code(400).send(errorBody("reason_required"))
     const row = await prisma.finding.findUnique({ where: { id } })
     if (!row) return reply.code(404).send(errorBody("not_found"))
-    const finding = await prisma.finding.update({ where: { id }, data: { status: "accepted", acceptReason: reason } })
+    const next = nextManualStatus(row.status, "accept")
+    if (!next) return reply.code(409).send(errorBody("invalid_transition", { from: row.status }))
+    const finding = await prisma.finding.update({ where: { id }, data: { status: next, acceptReason: reason } })
     await appendAudit({
       actor: await actorOf(req.headers as Record<string, unknown>),
       action: "finding_accept",
@@ -155,6 +176,8 @@ export async function registerScanRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string }
     const row = await prisma.finding.findUnique({ where: { id } })
     if (!row) return reply.code(404).send(errorBody("not_found"))
+    const next = nextManualStatus(row.status, "remediate")
+    if (!next) return reply.code(409).send(errorBody("invalid_transition", { from: row.status }))
     if (!row.scriptId || !row.deviceId) return reply.code(409).send(errorBody("no_linked_script"))
     const script = await prisma.script.findUnique({ where: { id: row.scriptId } })
     if (!script) return reply.code(404).send(errorBody("script_not_found"))
@@ -169,7 +192,7 @@ export async function registerScanRoutes(app: FastifyInstance): Promise<void> {
       timeoutSeconds: script.timeoutSeconds,
       parameters: JSON.parse(script.parameters),
     })
-    const finding = await prisma.finding.update({ where: { id }, data: { status: "remediating" } })
+    const finding = await prisma.finding.update({ where: { id }, data: { status: next } })
     await appendAudit({
       actor: await actorOf(req.headers as Record<string, unknown>),
       action: "finding_remediate",

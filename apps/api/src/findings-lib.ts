@@ -24,6 +24,13 @@ export function findingIdentity(row: { hostIp: string; source: string; category:
   return [row.hostIp, row.source, row.category, row.title, row.cveId].join("\u0000")
 }
 
+export function nextManualStatus(current: string, action: "acknowledge" | "accept" | "remediate"): string | null {
+  if (action === "acknowledge" && current === "open") return "acknowledged"
+  if (action === "accept" && (current === "open" || current === "acknowledged")) return "accepted"
+  if (action === "remediate" && (current === "open" || current === "acknowledged")) return "remediating"
+  return null
+}
+
 export function mergeStatus(previous: string | undefined, seen: boolean): string {
   if (!seen) return previous && previous !== "fixed" ? "fixed" : "fixed"
   if (!previous || previous === "fixed") return "open"

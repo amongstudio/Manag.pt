@@ -1,12 +1,15 @@
 package scan
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+var errRefused = errors.New("target_refused")
 
 type Scope struct {
 	AuthorizedNetworks []string `yaml:"authorized_networks"`
@@ -83,7 +86,7 @@ func AuthorizeTarget(target string, scope Scope) Decision {
 	}
 	for _, host := range scope.ExcludedHosts {
 		exc, ok := parseNet(host)
-		if ok && exc.bits == 32 && contains(net, exc.base) {
+		if ok && overlaps(net, exc) {
 			return Decision{Error: "target_excluded"}
 		}
 	}
@@ -172,4 +175,8 @@ func within(inner, outer ipNet) bool {
 		return false
 	}
 	return contains(outer, inner.base)
+}
+
+func overlaps(a, b ipNet) bool {
+	return contains(a, b.base) || contains(b, a.base)
 }

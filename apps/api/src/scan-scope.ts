@@ -100,6 +100,10 @@ function within(inner: { base: number; bits: number }, outer: { base: number; bi
   return contains(outer, inner.base)
 }
 
+function overlaps(a: { base: number; bits: number }, b: { base: number; bits: number }): boolean {
+  return contains(a, b.base) || contains(b, a.base)
+}
+
 /** Refuse targets outside the YAML allowlist. Accepts an IPv4 address or CIDR only. */
 export function authorizeTarget(target: string, scope: ScanScope): AuthResult {
   const trimmed = target.trim()
@@ -110,8 +114,8 @@ export function authorizeTarget(target: string, scope: ScanScope): AuthResult {
   }
   const net = parseNet(trimmed)
   if (!net) return { ok: false, error: "target_refused" }
-  const excluded = scope.excludedHosts.map(parseNet).filter((item): item is { base: number; bits: number } => item != null && item.bits === 32)
-  if (excluded.some((host) => contains(net, host.base))) return { ok: false, error: "target_excluded" }
+  const excluded = scope.excludedHosts.map(parseNet).filter((item): item is { base: number; bits: number } => item != null)
+  if (excluded.some((host) => overlaps(net, host))) return { ok: false, error: "target_excluded" }
   const allowed = scope.labMode
     ? [parseNet("127.0.0.1/32"), ...scope.labNetworks.map(parseNet)].filter((item): item is { base: number; bits: number } => item != null)
     : scope.authorizedNetworks.map(parseNet).filter((item): item is { base: number; bits: number } => item != null)

@@ -5,8 +5,10 @@ import { appendAudit } from "./audit.js"
 import { defenderDisabled, loadAutomations } from "./automations-lib.js"
 import { queueDeviceCommand } from "./command-queue.js"
 import { enqueueAlert, sendGenericWebhook, sendTeamsWebhook } from "./notify.js"
+import { getSettings } from "./settings.js"
 import { pruneMetricSamples } from "./metrics.js"
-import { loadRules, ruleHolds, type MetricPoint } from "./rules.js"
+import { loadRules, ruleDelivery, ruleHolds, type MetricPoint } from "./rules.js"
+import { finishScan } from "./scan-store.js"
 import { runDueSchedules } from "./scripts-run.js"
 
 let lastSlow = 0
@@ -20,20 +22,32 @@ export async function runPlatformJobs(app: FastifyInstance): Promise<void> {
   await runAutomations(app).catch((error) => app.log.error(error))
   await runDueSchedules(app).catch((error) => app.log.error(error))
   await pruneMetricSamples().catch((error) => app.log.error(error))
+  await reconcileFinishedScans(app).catch((error) => app.log.error(error))
   await queueDailyInventory(app).catch((error) => app.log.error(error))
 }
 
 async function evaluateRules(app: FastifyInstance): Promise<void> {
   const rules = loadRules()
   if (rules.length === 0) return
+  const settings = await getSettings()
   const since = new Date(Date.now() - 6 * 3600_000)
   const devices = await prisma.device.findMany({ select: { id: true, hostname: true }, take: 500 })
+  const deviceIds = devices.map((device) => device.id)
+  const allRows = deviceIds.length
+    ? await prisma.metricSample.findMany({
+        where: { deviceId: { in: deviceIds }, sampledAt: { gte: since } },
+        orderBy: { sampledAt: "desc" },
+        take: 8_000,
+      })
+    : []
+  const byDevice = new Map<string, typeof allRows>()
+  for (const row of allRows) {
+    const bucket = byDevice.get(row.deviceId) ?? []
+    if (bucket.length < 400) bucket.push(row)
+    byDevice.set(row.deviceId, bucket)
+  }
   for (const device of devices) {
-    const rows = await prisma.metricSample.findMany({
-      where: { deviceId: device.id, sampledAt: { gte: since } },
-      orderBy: { sampledAt: "desc" },
-      take: 400,
-    })
+    const rows = byDevice.get(device.id) ?? []
     const points: MetricPoint[] = rows.map((row) => ({
       name: row.name,
       value: row.value,
@@ -55,6 +69,12 @@ async function evaluateRules(app: FastifyInstance): Promise<void> {
       const title = rule.title
       const body = rule.body || `${device.hostname}: ${rule.clauses.map((clause) => clause.metric).join(" + ")}`
       const type = rule.id === "storage-failure" ? "storage_failure" : "metric_rule"
+      const delivery = ruleDelivery({
+        ruleTeams: rule.notify.teams,
+        ruleWebhook: rule.notify.webhook,
+        settingsTeams: settings.teams.webhookUrl,
+        settingsTeamsEnabled: settings.teams.enabled,
+      })
       await enqueueAlert(app, {
         type,
         deviceId: device.id,
@@ -64,16 +84,15 @@ async function evaluateRules(app: FastifyInstance): Promise<void> {
         extraChannels: [
           ...(rule.notify.telegram ? (["telegram"] as const) : []),
           ...(rule.notify.smtp ? (["smtp"] as const) : []),
-          ...(rule.notify.teams ? (["teams"] as const) : []),
         ],
       })
-      if (rule.notify.webhook) {
-        await sendGenericWebhook(rule.notify.webhook, title, body).catch((error) => {
+      if (delivery.webhook) {
+        await sendGenericWebhook(delivery.webhook, title, body).catch((error) => {
           app.log.warn({ ruleId: rule.id, err: error instanceof Error ? error.message : "webhook failed" }, "rule webhook")
         })
       }
-      if (rule.notify.teams) {
-        await sendTeamsWebhook(rule.notify.teams, title, body).catch((error) => {
+      if (delivery.teamsURL) {
+        await sendTeamsWebhook(delivery.teamsURL, title, body).catch((error) => {
           app.log.warn({ ruleId: rule.id, err: error instanceof Error ? error.message : "teams failed" }, "rule teams")
         })
       }
@@ -89,6 +108,32 @@ async function evaluateRules(app: FastifyInstance): Promise<void> {
         detail: { ruleId: rule.id, title },
       })
     }
+  }
+}
+
+async function reconcileFinishedScans(app: FastifyInstance): Promise<void> {
+  const open = await prisma.scan.findMany({
+    where: { status: { in: ["pending", "running"] }, commandId: { not: null } },
+    take: 40,
+    orderBy: { createdAt: "asc" },
+  })
+  for (const scan of open) {
+    if (!scan.commandId) continue
+    const command = await prisma.command.findUnique({ where: { id: scan.commandId } })
+    if (!command || (command.status !== "success" && command.status !== "failed" && command.status !== "cancelled")) continue
+    let result: unknown = null
+    try {
+      result = command.result ? JSON.parse(command.result) : { error: command.status }
+    } catch {
+      result = { error: "result_unreadable" }
+    }
+    await finishScan({
+      scanId: scan.id,
+      deviceId: scan.deviceId,
+      status: command.status === "success" ? "success" : "failed",
+      result,
+      kind: scan.kind,
+    }).catch((error) => app.log.error({ err: error, scanId: scan.id }, "scan reconcile failed"))
   }
 }
 
