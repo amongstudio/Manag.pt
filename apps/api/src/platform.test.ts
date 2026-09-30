@@ -75,6 +75,28 @@ test("inventory drops placeholder serials", () => {
   assert.equal(escapeLike("100%"), "100\\%")
 })
 
+test("inventory keeps users, dedupes repeats, and ignores error results", () => {
+  const report = normalizeInventory({
+    software: [
+      { name: "MAGIX Vandal VST-PlugIn", version: "1.0.0.71", publisher: "MAGIX" },
+      { name: "MAGIX Vandal VST-PlugIn", version: "1.0.0.71", publisher: "MAGIX" },
+      { name: "MAGIX Vandal VST-PlugIn", version: "1.0.0.71", publisher: "Other" },
+    ],
+    users: [
+      { name: "Admin", sid: "S-1-5-21-1-500", local: true, disabled: true },
+      { name: "Admin", sid: "S-1-5-21-1-500", local: true, disabled: true },
+      { name: "ada", sid: "S-1-5-21-1-1001" },
+      { name: "" },
+    ],
+  })
+  assert.equal(report?.software.length, 2)
+  assert.deepEqual(report?.users, [
+    { name: "Admin", sid: "S-1-5-21-1-500", local: true, disabled: true },
+    { name: "ada", sid: "S-1-5-21-1-1001", local: true, disabled: false },
+  ])
+  assert.equal(normalizeInventory({ error: "result_too_large" }), null)
+})
+
 test("update approval transitions and maintenance window", () => {
   assert.equal(nextUpdateApproval("pending", "approved"), "approved")
   assert.equal(nextUpdateApproval("pending", "installing"), null)

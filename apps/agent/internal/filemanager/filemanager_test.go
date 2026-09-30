@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -74,6 +75,44 @@ func TestDeleteDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("dir still present: %v", err)
+	}
+}
+
+func TestResolveAllowsPathsOutsideConfiguredRoots(t *testing.T) {
+	configured := t.TempDir()
+	outside := t.TempDir()
+	sb := New([]string{configured})
+	got, err := sb.Resolve(outside)
+	if err != nil {
+		t.Fatalf("Resolve(%q): %v", outside, err)
+	}
+	if got != canonicalize(outside) {
+		t.Fatalf("resolved %q want %q", got, canonicalize(outside))
+	}
+}
+
+func TestResolveRejectsMalformedPaths(t *testing.T) {
+	sb, _ := testSandbox(t)
+	traversal := "safe" + string(filepath.Separator) + ".." + string(filepath.Separator) + "other"
+	for _, path := range []string{"bad\x00path", "bad\npath", traversal} {
+		if _, err := sb.Resolve(path); err == nil {
+			t.Fatalf("Resolve(%q) unexpectedly succeeded", path)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		for _, path := range []string{`C:relative`, `\\.\PhysicalDrive0`, `\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1`} {
+			if _, err := sb.Resolve(path); err == nil {
+				t.Fatalf("Resolve(%q) unexpectedly succeeded", path)
+			}
+		}
+	}
+}
+
+func TestFilesystemRootsAreProtected(t *testing.T) {
+	for _, root := range platformRoots() {
+		if !isFilesystemRoot(root) {
+			t.Fatalf("%q should be recognized as a filesystem root", root)
+		}
 	}
 }
 

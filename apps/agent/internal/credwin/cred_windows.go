@@ -16,13 +16,13 @@ import (
 )
 
 const (
-	credTypeGeneric          = 1
-	credTypeDomainPassword   = 2
-	credTypeDomainVisible    = 4
-	credPersistSession       = 1
-	credPersistLocal         = 2
-	credPersistEnterprise    = 3
-	credEnumerateAll         = 0x1
+	credTypeGeneric        = 1
+	credTypeDomainPassword = 2
+	credTypeDomainVisible  = 4
+	credPersistSession     = 1
+	credPersistLocal       = 2
+	credPersistEnterprise  = 3
+	credEnumerateAll       = 0x1
 )
 
 type winCred struct {
@@ -41,12 +41,12 @@ type winCred struct {
 }
 
 var (
-	modAdvapi             = windows.NewLazySystemDLL("advapi32.dll")
-	procCredEnumerate     = modAdvapi.NewProc("CredEnumerateW")
-	procCredRead          = modAdvapi.NewProc("CredReadW")
-	procCredWrite         = modAdvapi.NewProc("CredWriteW")
-	procCredDelete        = modAdvapi.NewProc("CredDeleteW")
-	procCredFree          = modAdvapi.NewProc("CredFree")
+	modAdvapi         = windows.NewLazySystemDLL("advapi32.dll")
+	procCredEnumerate = modAdvapi.NewProc("CredEnumerateW")
+	procCredRead      = modAdvapi.NewProc("CredReadW")
+	procCredWrite     = modAdvapi.NewProc("CredWriteW")
+	procCredDelete    = modAdvapi.NewProc("CredDeleteW")
+	procCredFree      = modAdvapi.NewProc("CredFree")
 )
 
 func List(req ListRequest) (*ListResult, error) {
@@ -62,14 +62,10 @@ func List(req ListRequest) (*ListResult, error) {
 		ImpersonationOk: sess.ImpersonationOk,
 	}
 	if out.Session0 {
-		out.Notes = append(out.Notes, "session0: agent is running as a service; user Credential Manager and Chromium DPAPI need a signed-in desktop session")
+		out.Notes = append(out.Notes, "session0: agent is running as a Windows service")
 	}
 	if sess.SessionID != 0 && !sess.ImpersonationOk {
-		out.Notes = append(out.Notes, fmt.Sprintf("impersonation_failed: session %d (%s, %s) found but WTSQueryUserToken failed — agent may need LocalSystem", sess.SessionID, sess.Username, sess.State))
-	}
-	if !out.SessionOk && (req.Reveal || wants(req, "browser")) {
-		out.NeedsSession = true
-		out.Notes = append(out.Notes, "no_interactive_session: Chrome/Edge DPAPI and the user Credential Manager need a signed-in desktop session")
+		out.Notes = append(out.Notes, fmt.Sprintf("user_token_unavailable: session %d (%s, %s) was found but WTSQueryUserToken failed; the service account may lack SeTcbPrivilege", sess.SessionID, sess.Username, sess.State))
 	}
 	seen := map[string]bool{}
 	add := func(c Credential) {
@@ -113,13 +109,10 @@ func List(req ListRequest) (*ListResult, error) {
 			if impErr != nil {
 				out.ImpersonationOk = false
 				out.SessionOk = false
-				if req.Reveal {
-					out.NeedsSession = true
-				}
-				out.Notes = append(out.Notes, "needs_interactive_session: could not impersonate the signed-in user for Credential Manager")
+				out.Notes = append(out.Notes, "windows_user_store_unavailable: could not acquire the logged-on user's token; the service credential store is still included")
 			}
-		} else if req.Reveal && (wants(req, "windows") || wants(req, "apps")) {
-			out.NeedsSession = true
+		} else if out.Session0 {
+			out.Notes = append(out.Notes, "windows_user_store_unavailable: no logged-on user token; the service credential store is still included")
 		}
 		for _, c := range enumerateCreds(req.Reveal) {
 			if out.Session0 {
@@ -153,7 +146,7 @@ func List(req ListRequest) (*ListResult, error) {
 				out.ImpersonationOk = false
 				out.SessionOk = false
 				out.NeedsSession = true
-				out.Notes = append(out.Notes, "needs_interactive_session: browser DPAPI/NSS requires a signed-in desktop user")
+				out.Notes = append(out.Notes, "browser_user_token_unavailable: browser passwords are tied to the profile owner's DPAPI/NSS keys")
 			}
 		}
 		if !ranInteractive {
@@ -164,11 +157,11 @@ func List(req ListRequest) (*ListResult, error) {
 					if browser[i].Kind == "password" {
 						browser[i].Locked = true
 						if browser[i].Comment == "" {
-							browser[i].Comment = "needs_interactive_session"
+							browser[i].Comment = "profile_owner_token_unavailable: DPAPI password cannot be decrypted by the service account"
 						}
 					}
 				}
-				out.Notes = append(out.Notes, "needs_interactive_session: sign in on the desktop and retry with reveal/backup")
+				out.Notes = append(out.Notes, "browser_secrets_unavailable: no profile-owner token is logged on; browser metadata was returned with affected passwords marked locked")
 			}
 		} else if req.Reveal {
 			locked := 0
@@ -330,9 +323,9 @@ func Restore(req RestoreRequest) (map[string]any, error) {
 		restored++
 	}
 	return map[string]any{
-		"restored": restored,
-		"failed":   failed,
-		"notes":    notes,
+		"restored":  restored,
+		"failed":    failed,
+		"notes":     notes,
 		"sessionOk": winsession.HasConsoleUser(),
 	}, nil
 }

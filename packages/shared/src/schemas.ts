@@ -211,7 +211,11 @@ export const pluginFromTemplateSchema = z.object({
 
 export const PLUGIN_RUNTIME_SET = new Set<string>(PLUGIN_RUNTIMES)
 
-const commandPathSchema = z.string().min(1).max(2048)
+const commandPathSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .refine((v) => !/[\r\n\0]/.test(v), "invalid path characters")
 
 const serviceNameSchema = z
   .string()
@@ -269,7 +273,11 @@ const firewallProfilesSchema = z
   }, "invalid profiles")
 
 export const fileListQuerySchema = z.object({
-  path: z.string().min(1).max(1024),
+  path: z
+    .string()
+    .min(1)
+    .max(1024)
+    .refine((v) => !/[\r\n\0]/.test(v), "invalid path characters"),
 })
 
 /** App/process names: no control chars and no leading "-" (package-manager flag injection). */

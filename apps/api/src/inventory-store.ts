@@ -180,12 +180,13 @@ export async function deviceInventory(deviceId: string) {
       prisma.processSnapshot.findFirst({ where: { deviceId }, orderBy: { collectedAt: "desc" }, include: { processes: true } }),
       prisma.softwareInstallation.findMany({
         where: { deviceId },
-        orderBy: { collectedAt: "desc" },
+        orderBy: [{ collectedAt: "desc" }, { software: { name: "asc" } }],
         take: 400,
         include: { software: true },
       }),
     ])
   const latestSoftwareAt = software[0]?.collectedAt.getTime()
+  const seenSoftware = new Set<string>()
   return jsonSafe({
     hardware,
     os,
@@ -208,6 +209,11 @@ export async function deviceInventory(deviceId: string) {
     processSnapshotId: processes?.id ?? null,
     software: software
       .filter((row) => !latestSoftwareAt || row.collectedAt.getTime() === latestSoftwareAt)
+      .filter((row) => {
+        if (seenSoftware.has(row.softwareId)) return false
+        seenSoftware.add(row.softwareId)
+        return true
+      })
       .map((row) => ({ ...row.software, source: row.source, collectedAt: row.collectedAt })),
   })
 }

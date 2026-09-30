@@ -11,16 +11,21 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// activeUserProfileDir returns USERPROFILE for the current thread token when the
-// agent is impersonating the signed-in desktop user (Session 0 service path).
-func activeUserProfileDir() string {
+// impersonatedUserProfileDir returns the profile for the current thread token.
+// It deliberately does not fall back to the process token: in a service that
+// token normally belongs to SYSTEM, not the desktop user whose DPAPI data is
+// being inspected.
+func impersonatedUserProfileDir() string {
 	var tok windows.Token
 	if err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &tok); err == nil {
 		defer tok.Close()
-		if p := winsession.UserProfileDir(tok); p != "" {
-			return p
-		}
+		return winsession.UserProfileDir(tok)
 	}
+	return ""
+}
+
+func processUserProfileDir() string {
+	var tok windows.Token
 	proc, err := windows.GetCurrentProcess()
 	if err != nil {
 		return ""
@@ -54,15 +59,20 @@ func userProfileRootsForBrowser(reveal bool) []string {
 		roots = append(roots, p)
 	}
 
-	if reveal || winsession.InSession0() {
-		add(activeUserProfileDir())
+	if winsession.InSession0() {
+		add(impersonatedUserProfileDir())
 		add(winsession.ConsoleUserProfile())
 		if len(roots) > 0 {
 			return roots
 		}
+	} else {
+		add(impersonatedUserProfileDir())
+		add(processUserProfileDir())
+		if reveal && len(roots) > 0 {
+			return roots
+		}
 	}
 
-	add(activeUserProfileDir())
 	if home, err := os.UserHomeDir(); err == nil {
 		add(home)
 	}

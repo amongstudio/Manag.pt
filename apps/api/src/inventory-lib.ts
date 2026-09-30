@@ -21,6 +21,16 @@ function list(value: unknown, cap: number): Record<string, unknown>[] {
   return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object").slice(0, cap)
 }
 
+function uniqueBy<T>(rows: T[], key: (row: T) => string): T[] {
+  const seen = new Set<string>()
+  return rows.filter((row) => {
+    const k = key(row)
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
+  })
+}
+
 export type InventoryReport = {
   hardware: { manufacturer: string; model: string; serial: string; chassis: string }
   os: { name: string; version: string; build: string; arch: string }
@@ -47,6 +57,7 @@ export type InventoryReport = {
 export function normalizeInventory(raw: unknown): InventoryReport | null {
   if (!raw || typeof raw !== "object") return null
   const body = raw as Record<string, unknown>
+  if (typeof body.error === "string") return null
   const hardware = (body.hardware ?? {}) as Record<string, unknown>
   const os = (body.os ?? {}) as Record<string, unknown>
   return {
@@ -113,14 +124,17 @@ export function normalizeInventory(raw: unknown): InventoryReport | null {
       vendorId: cleanText(row.vendorId, 8),
       productId: cleanText(row.productId, 8),
     })),
-    software: list(body.software, 400)
-      .map((row) => ({
-        name: cleanText(row.name),
-        version: cleanText(row.version, 128),
-        publisher: cleanText(row.publisher),
-        source: cleanText(row.source, 32),
-      }))
-      .filter((row) => row.name),
+    software: uniqueBy(
+      list(body.software, 400)
+        .map((row) => ({
+          name: cleanText(row.name),
+          version: cleanText(row.version, 128),
+          publisher: cleanText(row.publisher),
+          source: cleanText(row.source, 32),
+        }))
+        .filter((row) => row.name),
+      (row) => `${row.name}\u0000${row.version}\u0000${row.publisher}`
+    ),
     drivers: list(body.drivers, 100).map((row) => ({
       name: cleanText(row.name),
       version: cleanText(row.version, 128),
@@ -159,14 +173,17 @@ export function normalizeInventory(raw: unknown): InventoryReport | null {
       version: cleanText(row.version, 64),
       path: cleanText(row.path, 1024),
     })),
-    users: list(body.users, 200)
-      .map((row) => ({
-        name: cleanText(row.name, 128),
-        sid: cleanText(row.sid, 128),
-        local: row.local !== false,
-        disabled: row.disabled === true,
-      }))
-      .filter((row) => row.name),
+    users: uniqueBy(
+      list(body.users, 200)
+        .map((row) => ({
+          name: cleanText(row.name, 128),
+          sid: cleanText(row.sid, 128),
+          local: row.local !== false,
+          disabled: row.disabled === true,
+        }))
+        .filter((row) => row.name),
+      (row) => row.sid || row.name.toLowerCase()
+    ),
     updates: list(body.updates, 200)
       .map((row) => ({
         kb: cleanText(row.kb, 32).toUpperCase(),

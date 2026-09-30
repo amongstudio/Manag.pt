@@ -8,13 +8,20 @@ import (
 	"time"
 
 	ole "github.com/go-ole/go-ole"
+	"github.com/go-ole/go-ole/oleutil"
+	"golang.org/x/sys/windows"
 )
 
 const maxBitLocker = 64
 
 func BitLocker() (*BitLockerResult, error) {
+	// These privileges are present on LocalSystem and some managed service
+	// accounts but may start disabled. BitLocker providers can require them
+	// while inspecting protected volume metadata.
+	_ = enablePrivilege("SeSecurityPrivilege")
+	_ = enablePrivilege("SeBackupPrivilege")
 	out, wmiErr := bitLockerWMI()
-	bde := bitLockerManageBde()
+	bde, _ := bitLockerManageBde()
 	if out != nil && len(out.Volumes) > 0 {
 		mergeBitLocker(out.Volumes, bde)
 		out.Available = true
@@ -23,12 +30,12 @@ func BitLocker() (*BitLockerResult, error) {
 	if len(bde) > 0 {
 		return &BitLockerResult{Volumes: bde, Available: true}, nil
 	}
-	if vols := bitLockerPowerShell(); len(vols) > 0 {
+	if vols, _ := bitLockerPowerShell(); len(vols) > 0 {
 		return &BitLockerResult{Volumes: vols, Available: true}, nil
 	}
 	reason := "unavailable"
 	if wmiErr != nil {
-		if isAccessDenied(wmiErr) {
+		if isAccessDenied(wmiErr) && !windows.GetCurrentProcessToken().IsElevated() {
 			return nil, ErrBitLockerAccess
 		}
 		if isWMIMissing(wmiErr) {
@@ -47,6 +54,9 @@ func BitLocker() (*BitLockerResult, error) {
 func bitLockerWMI() (*BitLockerResult, error) {
 	out := &BitLockerResult{Volumes: []BitLockerVolume{}, Available: true}
 	err := withWMI(`root\cimv2\Security\MicrosoftVolumeEncryption`, func(svc *ole.IDispatch) error {
+		if err := configureBitLockerWMI(svc); err != nil {
+			return err
+		}
 		return wmiQuery(svc, "SELECT * FROM Win32_EncryptableVolume", func(item *ole.IDispatch) error {
 			if len(out.Volumes) >= maxBitLocker {
 				out.Truncated = true
@@ -107,25 +117,63 @@ func bitLockerWMI() (*BitLockerResult, error) {
 	return out, nil
 }
 
-func bitLockerManageBde() []BitLockerVolume {
-	raw, err := runCmdEnglish(45*time.Second, system32("manage-bde.exe"), "-status")
-	if err != nil && raw == "" {
+func configureBitLockerWMI(svc *ole.IDispatch) error {
+	securityVar, err := oleutil.GetProperty(svc, "Security_")
+	if err != nil {
 		return nil
 	}
-	return parseManageBde(raw)
+	security, owned := dispatchFromVar(securityVar)
+	_ = securityVar.Clear()
+	if security == nil {
+		return nil
+	}
+	if owned {
+		defer security.Release()
+	}
+	// wbemImpersonationLevelImpersonate and packet privacy. Explicitly setting
+	// these avoids service-context COM calls being made with anonymous/default
+	// proxy security.
+	if _, err := oleutil.PutProperty(security, "ImpersonationLevel", 3); err != nil {
+		return nil
+	}
+	_, _ = oleutil.PutProperty(security, "AuthenticationLevel", 6)
+	return nil
 }
 
-func bitLockerPowerShell() []BitLockerVolume {
+func enablePrivilege(name string) error {
+	token := windows.GetCurrentProcessToken()
+	privilegeName, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	var luid windows.LUID
+	if err := windows.LookupPrivilegeValue(nil, privilegeName, &luid); err != nil {
+		return err
+	}
+	state := windows.Tokenprivileges{PrivilegeCount: 1}
+	state.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
+	return windows.AdjustTokenPrivileges(token, false, &state, 0, nil, nil)
+}
+
+func bitLockerManageBde() ([]BitLockerVolume, error) {
+	raw, err := runCmdEnglish(45*time.Second, system32("manage-bde.exe"), "-status")
+	if err != nil && raw == "" {
+		return nil, err
+	}
+	return parseManageBde(raw), err
+}
+
+func bitLockerPowerShell() ([]BitLockerVolume, error) {
 	script := strings.Join([]string{
 		"$ProgressPreference='SilentlyContinue'",
-		"$ErrorActionPreference='SilentlyContinue'",
+		"$ErrorActionPreference='Stop'",
 		"if (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue) { Get-BitLockerVolume | Select-Object MountPoint,ProtectionStatus,VolumeStatus,EncryptionPercentage,EncryptionMethod,VolumeType,CapacityGB,LockStatus,AutoUnlockEnabled,EncryptionMethod,KeyProtector | ConvertTo-Json -Compress -Depth 5 } else { Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume | ForEach-Object { $p = Invoke-CimMethod -InputObject $_ -MethodName GetProtectionStatus; $c = Invoke-CimMethod -InputObject $_ -MethodName GetConversionStatus; $d = Invoke-CimMethod -InputObject $_ -MethodName GetDriveLetter; $l = Invoke-CimMethod -InputObject $_ -MethodName GetLockStatus; [pscustomobject]@{ MountPoint=$d.DriveLetter; DeviceID=$_.DeviceID; ProtectionStatus=$p.ProtectionStatus; ConversionStatus=$c.ConversionStatus; EncryptionPercentage=$c.EncryptionPercentage; LockStatus=$l.LockStatus } } | ConvertTo-Json -Compress }",
 	}, ";")
 	raw, err := runHidden(45*time.Second, powershellExe(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 	if err != nil && raw == "" {
-		return nil
+		return nil, err
 	}
-	return parseBitLockerJSON(raw)
+	return parseBitLockerJSON(raw), err
 }
 
 func protectionName(v int) string {

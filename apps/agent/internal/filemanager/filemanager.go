@@ -58,12 +58,12 @@ type SearchHit struct {
 
 type Sandbox struct {
 	roots []string
-	deny  []string
 }
 
-func New(extra []string, denyRoots ...string) *Sandbox {
+func New(extra []string, _ ...string) *Sandbox {
 	home, _ := os.UserHomeDir()
-	roots := []string{canonicalize(home), canonicalize(os.TempDir())}
+	roots := platformRoots()
+	roots = append(roots, canonicalize(home), canonicalize(os.TempDir()))
 	if p := extraHomeDir(); p != "" {
 		c := canonicalize(p)
 		if c != "" && foldPath(c) != foldPath(canonicalize(home)) {
@@ -76,14 +76,7 @@ func New(extra []string, denyRoots ...string) *Sandbox {
 		}
 		roots = append(roots, canonicalize(r))
 	}
-	deny := make([]string, 0, len(denyRoots))
-	for _, r := range denyRoots {
-		if r == "" {
-			continue
-		}
-		deny = append(deny, canonicalize(r))
-	}
-	return &Sandbox{roots: roots, deny: deny}
+	return &Sandbox{roots: roots}
 }
 
 func foldPath(p string) string {
@@ -114,26 +107,22 @@ func canonicalize(p string) string {
 	return clean
 }
 
-func sandboxContains(candidate, root string) bool {
-	if candidate == "" || root == "" {
-		return false
-	}
-	c := foldPath(candidate)
-	r := foldPath(root)
-	if c == r {
-		return true
-	}
-	sep := string(filepath.Separator)
-	rootPrefix := r
-	if !strings.HasSuffix(r, sep) {
-		rootPrefix = r + sep
-	}
-	return strings.HasPrefix(c, rootPrefix)
-}
-
 func (s *Sandbox) Resolve(p string) (string, error) {
 	if p == "" {
 		return "", errors.New("empty path")
+	}
+	if strings.ContainsAny(p, "\x00\r\n") {
+		return "", errors.New("invalid path characters")
+	}
+	if runtime.GOOS == "windows" {
+		lower := strings.ToLower(strings.ReplaceAll(p, "/", `\`))
+		if strings.HasPrefix(lower, `\\.\`) || strings.HasPrefix(lower, `\\?\`) {
+			return "", errors.New("device paths are not supported")
+		}
+		volume := filepath.VolumeName(p)
+		if volume != "" && !filepath.IsAbs(p) {
+			return "", errors.New("drive-relative path is ambiguous")
+		}
 	}
 	if hasDotDotSegment(p) {
 		return "", errors.New("path traversal denied")
@@ -150,25 +139,7 @@ func (s *Sandbox) Resolve(p string) (string, error) {
 	if hasDotDotSegment(candidate) {
 		return "", errors.New("path traversal denied")
 	}
-	for _, denied := range s.deny {
-		if sandboxContains(candidate, denied) {
-			return "", errors.New("path denied")
-		}
-	}
-	lower := strings.ToLower(candidate)
-	deny := []string{"windows\\system32\\config", "/etc/shadow", "/etc/passwd"}
-	for _, d := range deny {
-		if strings.Contains(lower, strings.ToLower(filepath.FromSlash(d))) {
-			return "", errors.New("path denied")
-		}
-	}
-	for _, root := range s.roots {
-		root = canonicalize(root)
-		if sandboxContains(candidate, root) {
-			return candidate, nil
-		}
-	}
-	return "", errors.New("path outside sandbox")
+	return candidate, nil
 }
 
 func hasDotDotSegment(p string) bool {
@@ -231,12 +202,20 @@ func (s *Sandbox) Delete(p string) error {
 	if err != nil {
 		return err
 	}
-	for _, root := range s.roots {
-		if foldPath(canonicalize(root)) == foldPath(resolved) {
-			return errors.New("cannot delete sandbox root")
-		}
+	if isFilesystemRoot(resolved) {
+		return errors.New("cannot delete filesystem root")
 	}
 	return os.RemoveAll(resolved)
+}
+
+func isFilesystemRoot(p string) bool {
+	clean := filepath.Clean(p)
+	volume := filepath.VolumeName(clean)
+	if volume == "" {
+		return clean == string(filepath.Separator)
+	}
+	rest := strings.TrimPrefix(clean, volume)
+	return rest == "" || rest == string(filepath.Separator)
 }
 
 func (s *Sandbox) Mkdir(p string) error {

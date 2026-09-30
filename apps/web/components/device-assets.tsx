@@ -1,10 +1,10 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { MetricsTable } from "@/components/alerts-page"
-import { api, formatWhen } from "@/lib/api"
+import { api, formatBytes, formatWhen } from "@/lib/api"
 import { Button } from "@workspace/ui/components/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 
@@ -15,8 +15,8 @@ type Inventory = {
   memory: Array<{ id: string; bank: string; sizeBytes: string; manufacturer: string; serial: string }>
   disks: Array<{ id: string; name: string; model: string; serial: string; sizeBytes: string }>
   volumes: Array<{ id: string; mount: string; fs: string; sizeBytes: string; freeBytes: string }>
-  software: Array<{ name: string; version: string; publisher: string; collectedAt: string }>
-  users: Array<{ id: string; name: string; sid: string; local: boolean; disabled: boolean }>
+  software: Array<{ id: string; name: string; version: string; publisher: string; collectedAt: string }>
+  users: Array<{ id: string; name: string; sid: string; local: boolean; disabled: boolean; collectedAt: string }>
   services: Array<{ id: string; name: string; state: string; startType: string }>
 }
 
@@ -25,6 +25,17 @@ function useInventory(deviceId: string) {
     queryKey: ["inventory", deviceId],
     queryFn: () => api<Inventory>(`/api/v1/admin/devices/${deviceId}/inventory`),
   })
+}
+
+function StatusRow({ query, colSpan, empty }: { query: UseQueryResult<Inventory>; colSpan: number; empty: string }) {
+  const text = query.isPending ? "Loading…" : query.isError ? `Could not load inventory: ${query.error.message}` : empty
+  return (
+    <TableRow>
+      <TableCell colSpan={colSpan} className="text-muted-foreground">
+        {text}
+      </TableCell>
+    </TableRow>
+  )
 }
 
 export function DeviceMetrics({ deviceId }: { deviceId: string }) {
@@ -43,6 +54,7 @@ export function DeviceHardware({ deviceId }: { deviceId: string }) {
     onError: (error: Error) => toast.error(error.message),
   })
   const data = inventory.data
+  const volumes = data?.volumes ?? []
   return (
     <div className="flex flex-col gap-4">
       <Button size="sm" variant="outline" className="w-fit" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
@@ -66,14 +78,18 @@ export function DeviceHardware({ deviceId }: { deviceId: string }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {(data?.volumes ?? []).map((row) => (
-            <TableRow key={row.id}>
-              <TableCell>{row.mount}</TableCell>
-              <TableCell>{row.fs}</TableCell>
-              <TableCell>{row.freeBytes}</TableCell>
-              <TableCell>{row.sizeBytes}</TableCell>
-            </TableRow>
-          ))}
+          {volumes.length === 0 ? (
+            <StatusRow query={inventory} colSpan={4} empty="No volumes reported." />
+          ) : (
+            volumes.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{row.mount}</TableCell>
+                <TableCell>{row.fs}</TableCell>
+                <TableCell>{formatBytes(Number(row.freeBytes))}</TableCell>
+                <TableCell>{formatBytes(Number(row.sizeBytes))}</TableCell>
+              </TableRow>
+            ))
+          )}
         </TableBody>
       </Table>
     </div>
@@ -82,6 +98,7 @@ export function DeviceHardware({ deviceId }: { deviceId: string }) {
 
 export function DeviceSoftware({ deviceId }: { deviceId: string }) {
   const inventory = useInventory(deviceId)
+  const software = inventory.data?.software ?? []
   return (
     <Table>
       <TableHeader>
@@ -92,13 +109,17 @@ export function DeviceSoftware({ deviceId }: { deviceId: string }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {(inventory.data?.software ?? []).map((row) => (
-          <TableRow key={`${row.name}-${row.version}`}>
-            <TableCell>{row.name}</TableCell>
-            <TableCell>{row.version}</TableCell>
-            <TableCell>{row.publisher}</TableCell>
-          </TableRow>
-        ))}
+        {software.length === 0 ? (
+          <StatusRow query={inventory} colSpan={3} empty="No installed software reported." />
+        ) : (
+          software.map((row, index) => (
+            <TableRow key={`${row.name}-${row.version}-${row.publisher}-${index}`}>
+              <TableCell>{row.name}</TableCell>
+              <TableCell>{row.version}</TableCell>
+              <TableCell>{row.publisher}</TableCell>
+            </TableRow>
+          ))
+        )}
       </TableBody>
     </Table>
   )
@@ -106,6 +127,7 @@ export function DeviceSoftware({ deviceId }: { deviceId: string }) {
 
 export function DeviceUsers({ deviceId }: { deviceId: string }) {
   const inventory = useInventory(deviceId)
+  const users = inventory.data?.users ?? []
   return (
     <Table>
       <TableHeader>
@@ -113,16 +135,22 @@ export function DeviceUsers({ deviceId }: { deviceId: string }) {
           <TableHead>Name</TableHead>
           <TableHead>SID</TableHead>
           <TableHead>Local</TableHead>
+          <TableHead>Disabled</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {(inventory.data?.users ?? []).map((row) => (
-          <TableRow key={row.id}>
-            <TableCell>{row.name}</TableCell>
-            <TableCell>{row.sid}</TableCell>
-            <TableCell>{row.local ? "yes" : "no"}</TableCell>
-          </TableRow>
-        ))}
+        {users.length === 0 ? (
+          <StatusRow query={inventory} colSpan={4} empty="No user accounts reported. Refresh inventory from the Hardware tab." />
+        ) : (
+          users.map((row) => (
+            <TableRow key={row.id}>
+              <TableCell>{row.name}</TableCell>
+              <TableCell className="font-mono text-xs">{row.sid || "—"}</TableCell>
+              <TableCell>{row.local ? "yes" : "no"}</TableCell>
+              <TableCell>{row.disabled ? "yes" : "no"}</TableCell>
+            </TableRow>
+          ))
+        )}
       </TableBody>
     </Table>
   )

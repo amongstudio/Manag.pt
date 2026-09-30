@@ -4,6 +4,7 @@ package winsession
 
 import (
 	"fmt"
+	"sort"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -62,6 +63,10 @@ func DescribeInteractiveSession() InteractiveSession {
 }
 
 func ActiveSessionID() (uint32, error) {
+	// WTSQueryUserToken requires SeTcbPrivilege when called from a service.
+	// LocalSystem owns the privilege, but it is not guaranteed to be enabled
+	// in every service process token.
+	_ = enableProcessPrivilege("SeTcbPrivilege")
 	for _, sid := range candidateSessionIDs() {
 		var tok windows.Token
 		if err := windows.WTSQueryUserToken(sid, &tok); err != nil {
@@ -92,10 +97,50 @@ func candidateSessionIDs() []uint32 {
 		}
 		cands = append(cands, sessionCandidate{id: s.SessionID, state: s.State, username: user})
 	}
-	if best, ok := pickBestSession(cands); ok {
-		return []uint32{best.id}
+	sort.SliceStable(cands, func(i, j int) bool {
+		pi := sessionStatePriority(cands[i].state)
+		pj := sessionStatePriority(cands[j].state)
+		if pi != pj {
+			return pi < pj
+		}
+		return cands[i].id < cands[j].id
+	})
+	ids := make([]uint32, 0, len(cands))
+	for _, cand := range cands {
+		if sessionStatePriority(cand.state) >= 0 {
+			ids = append(ids, cand.id)
+		}
+	}
+	if len(ids) > 0 {
+		return ids
 	}
 	return fallbackConsoleSession()
+}
+
+func enableProcessPrivilege(name string) error {
+	proc, err := windows.GetCurrentProcess()
+	if err != nil {
+		return err
+	}
+	var token windows.Token
+	if err := windows.OpenProcessToken(proc, windows.TOKEN_QUERY|windows.TOKEN_ADJUST_PRIVILEGES, &token); err != nil {
+		return err
+	}
+	defer token.Close()
+	privilege, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	var luid windows.LUID
+	if err := windows.LookupPrivilegeValue(nil, privilege, &luid); err != nil {
+		return err
+	}
+	state := windows.Tokenprivileges{PrivilegeCount: 1}
+	state.Privileges[0] = windows.LUIDAndAttributes{
+		Luid:       luid,
+		Attributes: windows.SE_PRIVILEGE_ENABLED,
+	}
+	return windows.AdjustTokenPrivileges(token, false, &state, 0, nil, nil)
 }
 
 func fallbackConsoleSession() []uint32 {

@@ -204,7 +204,9 @@ test("copilot tools are existing command types and only run_plugin confirms", ()
 
 test("file list query requires a bounded path", () => {
   assert.equal(fileListQuerySchema.safeParse({ path: "C:/Users" }).success, true)
+  assert.equal(fileListQuerySchema.safeParse({ path: "C:\\Windows\\System32\\config" }).success, true)
   assert.equal(fileListQuerySchema.safeParse({ path: "../etc/passwd" }).success, true)
+  assert.equal(fileListQuerySchema.safeParse({ path: "C:\\bad\0path" }).success, false)
   assert.equal(fileListQuerySchema.safeParse({ path: "" }).success, false)
 })
 
