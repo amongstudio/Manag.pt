@@ -243,6 +243,7 @@ func (w *Watchdog) restartAgentLocked() {
 	w.opt.Log.Printf("restarting agent service after %d failed probes", w.failures)
 	if err := w.opt.Controller.Restart(); err != nil {
 		w.opt.Log.Printf("restart agent: %v", err)
+		w.scheduleBackoffLocked()
 		return
 	}
 	w.lastStart = now

@@ -49,6 +49,7 @@ var neverCommands = map[string]struct{}{
 	"install_windows_update": {},
 	"network_scan":           {},
 	"nuclei_scan":            {},
+	"apply_config":           {},
 }
 
 func DefaultPolicy() Policy {

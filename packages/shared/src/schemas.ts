@@ -384,6 +384,18 @@ export const commandPayloadSchemas = {
     timeoutMinutes: z.number().int().min(1).max(120).optional(),
   }),
   host_posture: z.object({ scanId: z.string().min(1).max(128).optional() }),
+  apply_config: z.object({
+    helper: z.object({
+      agentServiceName: z.string().min(1).max(64),
+      statusPort: z.number().int().min(1).max(65535),
+      backoffSec: z.number().int().min(1).max(3600),
+      probeIntervalSec: z.number().int().min(5).max(3600),
+      failThreshold: z.number().int().min(1).max(20),
+      maxBackoffSec: z.number().int().min(1).max(86_400),
+      startupGraceSec: z.number().int().min(0).max(3600),
+    }),
+    watchedServices: z.array(z.string().min(1).max(64)).max(32).optional(),
+  }),
   install_windows_update: z.object({
     kbs: z.array(z.string().regex(/^KB\d{4,10}$/)).min(1).max(40),
     reboot: z.enum(["never", "if_required", "scheduled"]).optional(),

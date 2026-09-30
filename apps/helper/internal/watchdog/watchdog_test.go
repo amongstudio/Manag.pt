@@ -16,13 +16,14 @@ import (
 )
 
 type fakeCtl struct {
-	st        agentctl.Status
-	statusErr error
-	starts    int
-	restarts  int
-	stops     int
-	startErr  error
-	stopErr   error
+	st         agentctl.Status
+	statusErr  error
+	starts     int
+	restarts   int
+	stops      int
+	startErr   error
+	stopErr    error
+	restartErr error
 }
 
 func (f *fakeCtl) Status() (agentctl.Status, error) { return f.st, f.statusErr }
@@ -44,6 +45,9 @@ func (f *fakeCtl) Stop() error {
 }
 func (f *fakeCtl) Restart() error {
 	f.restarts++
+	if f.restartErr != nil {
+		return f.restartErr
+	}
 	f.st = agentctl.StatusRunning
 	return nil
 }
@@ -199,5 +203,25 @@ func TestDoesNotStartOldBinaryWhileStaged(t *testing.T) {
 	w.Tick(context.Background())
 	if ctl.starts != 0 {
 		t.Fatalf("started old binary while staged update present: starts=%d", ctl.starts)
+	}
+}
+
+func TestRestartFailureDoesNotRetryImmediately(t *testing.T) {
+	ctl := &fakeCtl{st: agentctl.StatusRunning, restartErr: errors.New("busy")}
+	now := time.Now()
+	w := New(Options{
+		FailThreshold: 1,
+		StartupGrace:  0,
+		Backoff:       time.Minute,
+		MaxBackoff:    5 * time.Minute,
+		Controller:    ctl,
+		Log:           log.New(io.Discard, "", 0),
+		Now:           func() time.Time { return now },
+		Probe:         func(context.Context, string) error { return errors.New("down") },
+	})
+	w.Tick(context.Background())
+	w.Tick(context.Background())
+	if ctl.restarts != 1 {
+		t.Fatalf("restarts=%d", ctl.restarts)
 	}
 }

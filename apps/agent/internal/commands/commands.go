@@ -16,6 +16,7 @@ import (
 	"github.com/pc-manager/agent/internal/client"
 	"github.com/pc-manager/agent/internal/credwin"
 	"github.com/pc-manager/agent/internal/filemanager"
+	"github.com/pc-manager/agent/internal/helpercfg"
 	"github.com/pc-manager/agent/internal/inventory"
 	"github.com/pc-manager/agent/internal/monitor"
 	"github.com/pc-manager/agent/internal/netwin"
@@ -55,8 +56,9 @@ type Deps struct {
 		UploadID(localPath, remotePath string, progress func(int)) (string, error)
 		Download(fileID, dest string, progress func(int)) error
 	}
-	DeviceID string
-	Mesh     interface {
+	DeviceID     string
+	ApplyWatched func([]string)
+	Mesh         interface {
 		Enabled() bool
 		WaitFile(copyID, destPath string, progress func(int)) (peerfile.Result, error)
 		OfferFile(destID, srcPath, destPath string, addrs []string, port int, copyID string, progress func(int)) (peerfile.Result, error)
@@ -371,6 +373,8 @@ func Handle(typ string, payload json.RawMessage, deps Deps) (any, error) {
 		return runNucleiScan(body)
 	case "host_posture":
 		return scan.HostPosture(), nil
+	case "apply_config":
+		return applyLocalConfig(body, deps)
 	case "start_quick_assist":
 		req, err := winops.ParseAssist(payload)
 		if err != nil {
@@ -851,6 +855,55 @@ func scriptArgs(language, script string) (string, []string, error) {
 		return bin, []string{"-c", script}, nil
 	default:
 		return "", nil, errors.New("unsupported_language")
+	}
+}
+
+func applyLocalConfig(body map[string]any, deps Deps) (any, error) {
+	raw, _ := body["helper"].(map[string]any)
+	if raw == nil {
+		return map[string]string{"error": "invalid_config"}, errors.New("invalid_config")
+	}
+	opt := helpercfg.Options{
+		AgentServiceName: str(raw["agentServiceName"]),
+		StatusPort:       num(raw["statusPort"]),
+		BackoffSec:       num(raw["backoffSec"]),
+		ProbeIntervalSec: num(raw["probeIntervalSec"]),
+		FailThreshold:    num(raw["failThreshold"]),
+		MaxBackoffSec:    num(raw["maxBackoffSec"]),
+		StartupGraceSec:  num(raw["startupGraceSec"]),
+	}
+	if opt.AgentServiceName == "" || opt.StatusPort <= 0 {
+		return map[string]string{"error": "invalid_config"}, errors.New("invalid_config")
+	}
+	path, err := helpercfg.Write(deps.DataDir, opt)
+	if err != nil {
+		return map[string]string{"error": err.Error()}, err
+	}
+	if names, ok := body["watchedServices"].([]any); ok && deps.ApplyWatched != nil {
+		out := make([]string, 0, len(names))
+		for _, name := range names {
+			if text, ok := name.(string); ok && text != "" {
+				out = append(out, text)
+			}
+		}
+		deps.ApplyWatched(out)
+	}
+	return map[string]string{"helperYaml": path, "note": "helper reads helper.yaml on its next start"}, nil
+}
+
+func str(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
+func num(value any) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	default:
+		return 0
 	}
 }
 
