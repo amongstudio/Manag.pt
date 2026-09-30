@@ -204,7 +204,7 @@ func TestHandleUnsupportedPlatform(t *testing.T) {
 	if !errors.Is(err, smbwin.ErrUnsupported) {
 		t.Fatalf("get_smb: %v", err)
 	}
-	_, err = Handle("smb_list", json.RawMessage(`{"path":"\\\\srv\\\\share"}`), Deps{})
+	_, err = Handle("smb_list", json.RawMessage(`{"path":"\\\\srv\\share"}`), Deps{})
 	if !errors.Is(err, smbwin.ErrUnsupported) {
 		t.Fatalf("smb_list: %v", err)
 	}

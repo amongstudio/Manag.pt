@@ -12,10 +12,6 @@ func AgentRunning() bool { return false }
 
 func SelfInstall() error { return nil }
 
-func StopAgent() error { return nil }
-
-func StartHelper() error { return nil }
-
 func IsElevated() bool { return true }
 
 func RelaunchElevated(arg string) error { return nil }

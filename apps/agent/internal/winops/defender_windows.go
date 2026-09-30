@@ -128,28 +128,6 @@ func firstTime(item *ole.IDispatch, names ...string) string {
 	return ""
 }
 
-func defenderComputerState(v int) string {
-	switch v {
-	case 0:
-		return "clean"
-	case 1:
-		return "pending_full_scan"
-	case 2:
-		return "pending_reboot"
-	case 4:
-		return "pending_manual_steps"
-	case 8:
-		return "pending_offline_scan"
-	case 16:
-		return "pending_critical_failure"
-	default:
-		if v == 0 {
-			return ""
-		}
-		return "other"
-	}
-}
-
 func defenderPreferences(svc *ole.IDispatch) *DefenderPreferences {
 	var pref *DefenderPreferences
 	_ = wmiQuery(svc, "SELECT * FROM MSFT_MpPreference", func(item *ole.IDispatch) error {
@@ -328,70 +306,6 @@ func clipStrings(in []string, max int) []string {
 		}
 	}
 	return out
-}
-
-func mapsName(v int) string {
-	switch v {
-	case 0:
-		return "disabled"
-	case 1:
-		return "basic"
-	case 2:
-		return "advanced"
-	default:
-		return ""
-	}
-}
-
-func onOffAudit(v int) string {
-	switch v {
-	case 0:
-		return "disabled"
-	case 1:
-		return "enabled"
-	case 2:
-		return "audit"
-	default:
-		return ""
-	}
-}
-
-func threatSeverity(v int) string {
-	switch v {
-	case 0:
-		return "unknown"
-	case 1:
-		return "low"
-	case 2:
-		return "moderate"
-	case 4:
-		return "high"
-	case 5:
-		return "severe"
-	default:
-		return strconv.Itoa(v)
-	}
-}
-
-func threatActionName(v int) string {
-	switch v {
-	case 1:
-		return "clean"
-	case 2:
-		return "quarantine"
-	case 3:
-		return "remove"
-	case 6:
-		return "allow"
-	case 8:
-		return "user_defined"
-	case 9:
-		return "no_action"
-	case 10:
-		return "block"
-	default:
-		return ""
-	}
 }
 
 func mapDefenderErr(err error) error {

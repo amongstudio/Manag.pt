@@ -1,0 +1,26 @@
+{
+  "name": "Mnag.pt",
+  "install": "bash .cursor/cloud-agent-install.sh",
+  "terminals": [
+    {
+      "name": "API",
+      "command": "pnpm --filter api dev",
+      "description": "Fastify API on port 4000"
+    },
+    {
+      "name": "Web",
+      "command": "pnpm --filter web dev",
+      "description": "Next.js dashboard on port 3000. Proxies /api to the API."
+    }
+  ],
+  "ports": [
+    {
+      "name": "web",
+      "port": 3000
+    },
+    {
+      "name": "api",
+      "port": 4000
+    }
+  ]
+}

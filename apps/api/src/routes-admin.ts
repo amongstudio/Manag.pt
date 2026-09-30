@@ -4,7 +4,7 @@ import path from "node:path"
 import { createHash } from "node:crypto"
 
 import type { FastifyInstance } from "fastify"
-import { prisma } from "@workspace/db"
+import { Prisma, prisma } from "@workspace/db"
 import {
   API_PREFIX,
   commandTemplateWriteSchema,
@@ -79,6 +79,51 @@ function cursorWhere(field: "createdAt" | "timestamp", cursor?: { at: Date; id: 
   return {
     OR: [{ [field]: { lt: cursor.at } }, { AND: [{ [field]: cursor.at }, { id: { lt: cursor.id } }] }],
   }
+}
+
+const LATEST_SUCCESS_TYPES = [
+  "get_services",
+  "get_registry",
+  "get_adapters",
+  "get_ports",
+  "get_firewall",
+  "get_event_log",
+  "get_windows_update",
+  "get_admin_center",
+  "get_tasks",
+  "get_defender",
+  "get_bitlocker",
+  "get_capabilities",
+  "get_smb",
+  "get_credentials",
+] as const
+
+type LatestSuccessType = (typeof LATEST_SUCCESS_TYPES)[number]
+
+async function latestSuccessfulCommands(deviceId: string) {
+  const empty = Object.fromEntries(LATEST_SUCCESS_TYPES.map((type) => [type, null])) as Record<
+    LatestSuccessType,
+    ReturnType<typeof serializeCommand> | null
+  >
+  const ids = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM (
+      SELECT id,
+        ROW_NUMBER() OVER (PARTITION BY type ORDER BY createdAt DESC, id DESC) AS rn
+      FROM "Command"
+      WHERE deviceId = ${deviceId}
+        AND status = 'success'
+        AND type IN (${Prisma.join(LATEST_SUCCESS_TYPES)})
+    ) ranked
+    WHERE rn = 1
+  `)
+  if (ids.length === 0) return empty
+  const rows = await prisma.command.findMany({ where: { id: { in: ids.map((row) => row.id) } } })
+  for (const row of rows) {
+    if ((LATEST_SUCCESS_TYPES as readonly string[]).includes(row.type)) {
+      empty[row.type as LatestSuccessType] = serializeCommand(row)
+    }
+  }
+  return empty
 }
 
 function watchingNow(watchUntil: Date | null | undefined): boolean {
@@ -194,88 +239,13 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string }
     const device = await prisma.device.findUnique({ where: { id } })
     if (!device) return reply.code(404).send(errorBody("not_found"))
-    const [
-      screenshots,
-      commands,
-      files,
-      latestServices,
-      latestRegistry,
-      latestAdapters,
-      latestPorts,
-      latestFirewall,
-      latestEventLog,
-      latestWindowsUpdate,
-      latestAdminCenter,
-      latestTasks,
-      latestDefender,
-      latestBitLocker,
-      latestCapabilities,
-      latestSmb,
-      latestCredentials,
-      lanPeers,
-    ] =
-      await Promise.all([
-        prisma.screenshot.findMany({ where: { deviceId: id }, orderBy: { createdAt: "desc" }, take: 24 }),
-        prisma.command.findMany({ where: { deviceId: id }, orderBy: { createdAt: "desc" }, take: 40 }),
-        prisma.fileInfo.findMany({ where: { deviceId: id }, orderBy: { createdAt: "desc" }, take: 40 }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_services", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_registry", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_adapters", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_ports", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_firewall", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_event_log", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_windows_update", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_admin_center", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_tasks", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_defender", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_bitlocker", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_capabilities", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_smb", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.command.findFirst({
-          where: { deviceId: id, type: "get_credentials", status: "success" },
-          orderBy: { createdAt: "desc" },
-        }),
-        lanPeersFor(device),
-      ])
+    const [screenshots, commands, files, latestSuccessful, lanPeers] = await Promise.all([
+      prisma.screenshot.findMany({ where: { deviceId: id }, orderBy: { createdAt: "desc" }, take: 24 }),
+      prisma.command.findMany({ where: { deviceId: id }, orderBy: { createdAt: "desc" }, take: 40 }),
+      prisma.fileInfo.findMany({ where: { deviceId: id }, orderBy: { createdAt: "desc" }, take: 40 }),
+      latestSuccessfulCommands(id),
+      lanPeersFor(device),
+    ])
     return {
       device: {
         ...device,
@@ -287,22 +257,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       commands: commands.map((c) => serializeCommand(c)),
       files,
       lanPeers,
-      latestSuccessful: {
-        get_services: latestServices ? serializeCommand(latestServices) : null,
-        get_registry: latestRegistry ? serializeCommand(latestRegistry) : null,
-        get_adapters: latestAdapters ? serializeCommand(latestAdapters) : null,
-        get_ports: latestPorts ? serializeCommand(latestPorts) : null,
-        get_firewall: latestFirewall ? serializeCommand(latestFirewall) : null,
-        get_event_log: latestEventLog ? serializeCommand(latestEventLog) : null,
-        get_windows_update: latestWindowsUpdate ? serializeCommand(latestWindowsUpdate) : null,
-        get_admin_center: latestAdminCenter ? serializeCommand(latestAdminCenter) : null,
-        get_tasks: latestTasks ? serializeCommand(latestTasks) : null,
-        get_defender: latestDefender ? serializeCommand(latestDefender) : null,
-        get_bitlocker: latestBitLocker ? serializeCommand(latestBitLocker) : null,
-        get_capabilities: latestCapabilities ? serializeCommand(latestCapabilities) : null,
-        get_smb: latestSmb ? serializeCommand(latestSmb) : null,
-        get_credentials: latestCredentials ? serializeCommand(latestCredentials) : null,
-      },
+      latestSuccessful,
     }
   })
 
