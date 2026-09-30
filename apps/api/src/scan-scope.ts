@@ -58,12 +58,71 @@ export function scopePath(): string {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[1]!
 }
 
+let scopeOverride: string | null = null
+
+export function setScanScopeOverride(text: string | null): void {
+  scopeOverride = text
+}
+
 export function loadScanScope(): ScanScope {
+  if (scopeOverride != null) return parseScanScope(scopeOverride)
   try {
     return parseScanScope(fs.readFileSync(scopePath(), "utf8"))
   } catch {
     return { ...DEFAULT_SCOPE, labMode: true, authorizedNetworks: ["127.0.0.1/32"] }
   }
+}
+
+export function isCidrOrIp(token: string): boolean {
+  return parseNet(token.trim()) != null
+}
+
+const SCOPE_KEYS = new Set([
+  "authorized_networks",
+  "excluded_hosts",
+  "scan_rate_limit",
+  "scan_timeout_minutes",
+  "lab_mode",
+  "lab_networks",
+  "enable_vulners",
+])
+
+export function validateScanScopeText(text: string): { ok: true; scope: ScanScope } | { ok: false; error: string } {
+  if (text.length > 100_000) return { ok: false, error: "too_large" }
+  let parsed: unknown
+  try {
+    parsed = yaml.load(text)
+  } catch {
+    return { ok: false, error: "invalid_yaml" }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, error: "invalid_yaml" }
+  const raw = parsed as Record<string, unknown>
+  for (const key of Object.keys(raw)) {
+    if (!SCOPE_KEYS.has(key)) return { ok: false, error: "unknown_key" }
+  }
+  if ("scan_rate_limit" in raw) {
+    const rate = raw.scan_rate_limit
+    if (typeof rate !== "number" || !Number.isInteger(rate) || rate <= 0 || rate > 10_000) return { ok: false, error: "invalid_range" }
+  }
+  if ("scan_timeout_minutes" in raw) {
+    const timeout = raw.scan_timeout_minutes
+    if (typeof timeout !== "number" || !Number.isInteger(timeout) || timeout < 1 || timeout > 120) return { ok: false, error: "invalid_range" }
+  }
+  if ("lab_mode" in raw && typeof raw.lab_mode !== "boolean") return { ok: false, error: "invalid_body" }
+  if ("enable_vulners" in raw && typeof raw.enable_vulners !== "boolean") return { ok: false, error: "invalid_body" }
+  for (const key of ["authorized_networks", "excluded_hosts", "lab_networks"] as const) {
+    if (!(key in raw)) continue
+    if (!Array.isArray(raw[key]) || (raw[key] as unknown[]).some((item) => typeof item !== "string")) {
+      return { ok: false, error: "invalid_network" }
+    }
+  }
+  const scope = parseScanScope(text)
+  if (!scope.labMode && scope.authorizedNetworks.length === 0) return { ok: false, error: "empty_allowlist" }
+  for (const item of [...scope.authorizedNetworks, ...scope.excludedHosts, ...scope.labNetworks]) {
+    if (!isCidrOrIp(item)) return { ok: false, error: "invalid_network" }
+    if (item === "0.0.0.0/0" || item.endsWith("/0")) return { ok: false, error: "allowlist_too_wide" }
+  }
+  return { ok: true, scope }
 }
 
 function ipv4(ip: string): number | null {

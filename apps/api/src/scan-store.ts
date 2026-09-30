@@ -175,7 +175,14 @@ export async function storedPosture(deviceId: string | null): Promise<{
   }
 }
 
+let softwareRulesOverride: string | null = null
+
+export function setSoftwareRulesOverride(text: string | null): void {
+  softwareRulesOverride = text
+}
+
 function softwareRules(): SoftwareRule[] {
+  if (softwareRulesOverride != null) return parseSoftwareRules(softwareRulesOverride)
   for (const candidate of ["config/software-rules.yaml", "../../config/software-rules.yaml"]) {
     try {
       return parseSoftwareRules(fs.readFileSync(candidate, "utf8"))
