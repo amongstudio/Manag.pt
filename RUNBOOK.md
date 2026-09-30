@@ -95,6 +95,10 @@ This environment cannot run Inno Setup or a Windows VM. The script was checked a
 - **Code signing** needs a real `CERT_THUMBPRINT` and Windows `signtool`. Nothing in the repo is signed.
 - **Pushing `v3.3.0`** is an operator action. The tag command is above; this branch does not push a tag.
 
+## Security scans
+
+`config/scan-scope.yaml` is the allowlist. `lab_mode: true` accepts only `127.0.0.1/32`, `::1`, and `lab_networks`. The human record is `SECURITY_AUTHORIZATION.md`; a blank signature line means nobody has signed it. Nmap, Nuclei, and Trivy run on the agent only when those binaries are on `PATH`. Nuclei always excludes tags `dos,intrusive,fuzz,exploit` and does not update templates. Do not point a scan at a network that is not listed.
+
 ## Not built
 
 - SQLCipher for the whole SQLite file.

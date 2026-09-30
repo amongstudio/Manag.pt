@@ -1,0 +1,12 @@
+# Targets the operator is authorized to scan. A fresh checkout can reach
+# 127.0.0.1 only while lab_mode is true. Add networks you own before any
+# other address will be accepted. See SECURITY_AUTHORIZATION.md.
+authorized_networks:
+  - 127.0.0.1/32
+excluded_hosts: []
+scan_rate_limit: 100
+scan_timeout_minutes: 10
+lab_mode: true
+lab_networks: []
+# nmap --script vulners. Default off; the public API is rate-limited.
+enable_vulners: false
