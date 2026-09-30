@@ -40,6 +40,10 @@ go run ./cmd/helper
 
 Open http://localhost:3000
 
+Full guides: [docs/README.md](docs/README.md) (dashboard, agent install, scripts, monitoring, inventory, security scans, remote access, architecture, data model, testing). Operator deploy and rollback: [RUNBOOK.md](RUNBOOK.md).
+
+Current operator surfaces beyond the original device tools: **Scripts**, **Alerts**, **Inventory**, and **Security**. Security scans refuse any target outside `config/scan-scope.yaml`. There is no exploit engine. Nmap, Nuclei, and Trivy run on the agent only when those programs are installed.
+
 ## Docker
 
 ```bash
