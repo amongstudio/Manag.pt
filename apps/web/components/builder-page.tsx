@@ -75,6 +75,32 @@ type StampArch = (typeof STAMP_ARCHES)[number]
 
 type Preset = "lightweight" | "watched" | "full"
 
+function InstallCommandCard({ initial }: { initial: string }) {
+  const command = useQuery({
+    queryKey: ["install-command"],
+    queryFn: () => api<{ command: string; serverUrl: string; secretIncluded: boolean }>("/api/v1/admin/config/install-command"),
+    initialData: initial ? { command: initial, serverUrl: "", secretIncluded: false } : undefined,
+  })
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Silent install command</CardTitle>
+        <CardDescription>Generated from the API public URL. The enrollment secret is not included.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <pre className="overflow-auto rounded-md border p-3 text-xs">{command.data?.command ?? "Loading…"}</pre>
+      </CardContent>
+    </Card>
+  )
+}
+
+const STAMP_TOAST: Record<string, string> = {
+  invalid_body: "Stamp request was rejected. Check the server URL, intervals, and sandbox roots.",
+  not_found: "That pack is gone. Refresh the list.",
+  missing_params: "Download link is missing its signature.",
+  invalid_signature: "Download link expired or was altered. Stamp the pack again.",
+}
+
 const COMPILE_TOAST: Record<string, string> = {
   go_not_found: "Go not found. Install Go or set GO_BIN.",
   source_not_found: "Agent sources not found. Set AGENT_SOURCE_DIR to apps/agent.",
@@ -174,7 +200,7 @@ function applyPreset(kind: Preset): Partial<StampPackInput> {
   }
 }
 
-export function BuilderPage() {
+export function BuilderPage({ installCommand = "" }: { installCommand?: string }) {
   const client = useQueryClient()
   const meta = useQuery({
     queryKey: ["admin-meta"],
@@ -301,7 +327,7 @@ export function BuilderPage() {
       const href = data.downloadUrlAbsolute || data.downloadUrl
       triggerDownload(href, `pc-manager-${platform}-${arch}.zip`)
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toast.error(STAMP_TOAST[e.message] ?? e.message),
   })
 
   const remove = useMutation({
@@ -380,6 +406,7 @@ export function BuilderPage() {
             : "Writes config.yaml, copies the latest matching agent binary from Settings if one exists, and zips an installer. Pack download links expire after 10 minutes."}
         </AlertDescription>
       </Alert>
+      <InstallCommandCard initial={installCommand} />
       {packs.isSuccess && !compileEnabled ? (
         <Alert>
           <AlertTitle>Compile is off</AlertTitle>

@@ -1,6 +1,6 @@
 # Documentation
 
-Mnag.pt 3.3.0. These pages describe the code on `cursor/harden-and-docs-4753` and the branches it contains. Older notes in this folder (`server.md`, `agent.md`, `helper.md`, `operator.md`) still cover Docker, the original agent transport, and the pre-platform dashboard tour.
+Mnag.pt 3.3.0. These pages describe the code on `cursor/config-console-4753` and the branches it contains. Older notes in this folder (`server.md`, `agent.md`, `helper.md`, `operator.md`) still cover Docker, the original agent transport, and the pre-platform dashboard tour. Configuration in the dashboard overrides the YAML defaults in `config/`.
 
 ## Users
 

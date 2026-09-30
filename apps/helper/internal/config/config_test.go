@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -41,6 +43,38 @@ func TestApplyDefaults(t *testing.T) {
 	}
 	if got, want := cfg.StatusURL(), "http://127.0.0.1:17890/status"; got != want {
 		t.Fatalf("status url: %s", got)
+	}
+}
+
+func TestExplicitZeroStartupGrace(t *testing.T) {
+	cfg := Default()
+	if err := yaml.Unmarshal([]byte("startup_grace_sec: 0\n"), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.applyDefaults()
+	if cfg.StartupGraceSec != 0 {
+		t.Fatalf("explicit zero grace became %d", cfg.StartupGraceSec)
+	}
+}
+
+func TestProbeIntervalEnvOverridesFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "helper.yaml")
+	if err := os.WriteFile(path, []byte("probe_interval_sec: 45\nstartup_grace_sec: 60\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PC_MANAGER_HELPER_CONFIG", path)
+	t.Setenv("HELPER_PROBE_INTERVAL_SEC", "12")
+	t.Setenv("HELPER_STARTUP_GRACE_SEC", "0")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProbeIntervalSec != 12 {
+		t.Fatalf("probe interval %d", cfg.ProbeIntervalSec)
+	}
+	if cfg.StartupGraceSec != 0 {
+		t.Fatalf("grace %d", cfg.StartupGraceSec)
 	}
 }
 

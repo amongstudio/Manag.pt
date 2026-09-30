@@ -39,7 +39,7 @@ Fleet software search. **Name contains** and **Version equals** are SQL filters 
 
 ## Security (`/security`)
 
-Start a scan for a device: Nmap, Nuclei, or host posture. The API refuses targets outside `config/scan-scope.yaml` before a command is queued. The scans table shows status and summary (`nmap_unavailable`, `nuclei_unavailable`, `trivy_unavailable`, or a finding count). Filters cover severity, status, port, and service. **Ack**, **Accept** (asks for a reason), **Link script**, and **Remediate** call the findings API. Remediate stays disabled until a library script is linked, and it only moves `open` or `acknowledged` findings to `remediating`.
+Start a scan for a device: Nmap, Nuclei, or host posture. The API refuses targets outside the scan scope before a command is queued. Operators edit that scope on Configuration. The file `config/scan-scope.yaml` is only the default copied into SQLite the first time. An empty allowlist with lab mode off is rejected, and `0.0.0.0/0` is rejected. The scans table shows status and summary (`nmap_unavailable`, `nuclei_unavailable`, `trivy_unavailable`, or a finding count). Filters cover severity, status, port, and service. **Ack**, **Accept** (asks for a reason), **Link script**, and **Remediate** call the findings API. Remediate stays disabled until a library script is linked, and it only moves `open` or `acknowledged` findings to `remediating`.
 
 ## Plugins (`/plugins`)
 
@@ -55,4 +55,14 @@ Agent log lines shipped after heartbeats. Filter by level and message.
 
 ## Settings (`/settings`)
 
-Telegram, Discord, Teams incoming webhook, SMTP, thresholds, retention, agent intervals, LLM copilot, mesh, and operator password. Saved secrets are redacted in the API response. Teams posts a MessageCard to the webhook URL.
+Telegram, Discord, Teams incoming webhook, SMTP, thresholds, metric retention, agent intervals, LLM copilot, mesh, and operator password. Saved secrets are redacted in the API response. Teams posts a MessageCard to the webhook URL. These values live in the `app` settings row. The API cache is cleared on save, so the job loop sees them on the next read.
+
+## Configuration (`/configuration`)
+
+Dashboard, API, Agent, and Helper tabs. YAML for alert rules, automations, scan scope, and software version rules is stored in SQLite and overrides the files in `config/` until you change it again. A fresh checkout still boots from those files. Agent idle heartbeat and poll interval save through the same settings row and ride the next heartbeat as `agentConfig`. Helper watchdog numbers are pushed to online agents as `apply_config`, which writes `helper.yaml`. The helper reads that file when it starts, so a probe-interval change waits for a helper restart. The install command on this page and on Builder uses the API public URL and masks the enrollment secret.
+
+Process-start values stay in the environment: `OPERATOR_TOKEN`, `NEXT_PUBLIC_OPERATOR_TOKEN`, `NEXT_PUBLIC_WS_URL`, `ENROLLMENT_SECRET`, `CREDENTIALS_KEY`, `UPDATE_SIGNING_SECRET`, `PUBLIC_URL`, and `ENABLE_AGENT_COMPILE`. Helper `update_signing_secret` and `agent_exe` are not returned by the API.
+
+## Docs (`/docs`)
+
+Markdown shipped in `docs/`, grouped as Users, Developers, and Operators. Each page is a path such as `/docs/users/getting-started`. The API reads the files from the repo and escapes HTML before the dashboard renders it.

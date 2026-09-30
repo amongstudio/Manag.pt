@@ -171,10 +171,24 @@ export function rulesPath(): string {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[1]!
 }
 
+let rulesOverride: string | null = null
+let rulesCache: AlertRule[] | null = null
+
+export function setRulesOverride(text: string | null): void {
+  rulesOverride = text
+  rulesCache = null
+}
+
 export function loadRules(): AlertRule[] {
-  try {
-    return parseRules(fs.readFileSync(rulesPath(), "utf8"))
-  } catch {
-    return []
+  if (rulesCache) return rulesCache
+  let text = rulesOverride
+  if (text == null) {
+    try {
+      text = fs.readFileSync(rulesPath(), "utf8")
+    } catch {
+      text = ""
+    }
   }
+  rulesCache = parseRules(text)
+  return rulesCache
 }

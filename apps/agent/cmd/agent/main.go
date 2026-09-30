@@ -141,6 +141,13 @@ func (p *program) Stop(s service.Service) error {
 	return nil
 }
 
+func (p *program) applyWatched(names []string) {
+	p.cfg.Lock()
+	p.cfg.WatchedServiceNames = append([]string(nil), names...)
+	p.cfg.Unlock()
+	_ = p.cfg.Save()
+}
+
 func applyAgentConfig(cfg *config.Config, ac *client.AgentConfig) bool {
 	if ac == nil {
 		return false
@@ -475,6 +482,7 @@ func (p *program) run() {
 				EnablePlugins: p.cfg.EnablePlugins,
 				Transfer:      p.xfer,
 				DeviceID:      p.cfg.DeviceID,
+				ApplyWatched:  p.applyWatched,
 			})
 		})
 		p.mesh.SetSignal(func(v any) error {
@@ -617,6 +625,7 @@ func (p *program) runOne(api *client.Client, sandbox *filemanager.Sandbox, cmd c
 		Version:       Version,
 		DataDir:       p.cfg.DataDir,
 		EnablePlugins: p.cfg.EnablePlugins,
+		ApplyWatched:  p.applyWatched,
 		Progress: func(n int) {
 			p.reportProgress(api, cmd.ID, resultID, n)
 		},

@@ -54,12 +54,26 @@ export function automationsPath(): string {
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[1]!
 }
 
+let automationsOverride: string | null = null
+let automationsCache: Automation[] | null = null
+
+export function setAutomationsOverride(text: string | null): void {
+  automationsOverride = text
+  automationsCache = null
+}
+
 export function loadAutomations(): Automation[] {
-  try {
-    return parseAutomations(fs.readFileSync(automationsPath(), "utf8"))
-  } catch {
-    return []
+  if (automationsCache) return automationsCache
+  let text = automationsOverride
+  if (text == null) {
+    try {
+      text = fs.readFileSync(automationsPath(), "utf8")
+    } catch {
+      text = ""
+    }
   }
+  automationsCache = parseAutomations(text)
+  return automationsCache
 }
 
 export function defenderDisabled(result: unknown): boolean {

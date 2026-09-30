@@ -108,6 +108,26 @@ func Load() (Config, error) {
 			cfg.BackoffSec = n
 		}
 	}
+	if v := os.Getenv("HELPER_PROBE_INTERVAL_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.ProbeIntervalSec = n
+		}
+	}
+	if v := os.Getenv("HELPER_FAIL_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.FailThreshold = n
+		}
+	}
+	if v := os.Getenv("HELPER_MAX_BACKOFF_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.MaxBackoffSec = n
+		}
+	}
+	if v := os.Getenv("HELPER_STARTUP_GRACE_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.StartupGraceSec = n
+		}
+	}
 	if v := os.Getenv("AGENT_EXE"); v != "" {
 		cfg.AgentExe = v
 	}
@@ -148,8 +168,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.StartupGraceSec < 0 {
 		c.StartupGraceSec = 0
-	} else if c.StartupGraceSec == 0 {
-		c.StartupGraceSec = 60
 	}
 	if strings.TrimSpace(c.AgentExe) == "" {
 		if exe, err := os.Executable(); err == nil {

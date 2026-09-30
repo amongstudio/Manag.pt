@@ -65,6 +65,7 @@ export const COMMAND_TYPES = [
 	"network_scan",
 	"nuclei_scan",
 	"host_posture",
+	"apply_config",
 	"peer_listen",
 	"peer_offer",
 ] as const
