@@ -16,6 +16,7 @@ import (
 	"github.com/pc-manager/agent/internal/client"
 	"github.com/pc-manager/agent/internal/credwin"
 	"github.com/pc-manager/agent/internal/filemanager"
+	"github.com/pc-manager/agent/internal/inventory"
 	"github.com/pc-manager/agent/internal/monitor"
 	"github.com/pc-manager/agent/internal/netwin"
 	"github.com/pc-manager/agent/internal/peerfile"
@@ -65,7 +66,7 @@ func Classify(typ string) Class {
 	switch typ {
 	case "restart", "shutdown", "kill_switch", "update_agent":
 		return ClassExclusive
-	case "install_app", "uninstall_app", "run_script", "run_plugin", "upload_file", "download_file", "search_files", "copy_file", "get_services", "start_service", "stop_service", "restart_service", "get_adapters", "get_ports", "get_firewall", "set_firewall_rule", "delete_firewall_rule", "peer_listen", "peer_offer", "get_event_log", "get_windows_update", "start_quick_assist", "get_tasks", "set_task_enabled", "get_defender", "set_defender", "start_defender_scan", "update_defender", "defender_action", "cancel_defender_scan", "get_bitlocker", "set_bitlocker", "get_capabilities", "install_capability", "get_smb", "smb_list", "smb_connect", "smb_disconnect", "get_credentials", "set_credential", "delete_credential", "generate_credential", "backup_credentials", "restore_credentials":
+	case "install_app", "uninstall_app", "run_script", "run_plugin", "upload_file", "download_file", "search_files", "copy_file", "get_services", "start_service", "stop_service", "restart_service", "get_adapters", "get_ports", "get_firewall", "set_firewall_rule", "delete_firewall_rule", "peer_listen", "peer_offer", "get_event_log", "get_windows_update", "install_windows_update", "start_quick_assist", "get_tasks", "set_task_enabled", "get_defender", "set_defender", "start_defender_scan", "update_defender", "defender_action", "cancel_defender_scan", "get_bitlocker", "set_bitlocker", "get_capabilities", "install_capability", "get_smb", "smb_list", "smb_connect", "smb_disconnect", "get_credentials", "set_credential", "delete_credential", "generate_credential", "backup_credentials", "restore_credentials", "collect_inventory":
 		return ClassLong
 	default:
 		return ClassFast
@@ -161,8 +162,7 @@ func Handle(typ string, payload json.RawMessage, deps Deps) (any, error) {
 		return runUninstall(name)
 	case "run_script":
 		reportProgress(deps, 0)
-		script, _ := body["script"].(string)
-		return runScript(script)
+		return runScriptBody(body)
 	case "run_plugin":
 		if !deps.EnablePlugins {
 			return nil, errors.New("plugins disabled")
@@ -355,6 +355,15 @@ func Handle(typ string, payload json.RawMessage, deps Deps) (any, error) {
 			return nil, err
 		}
 		return winops.WindowsUpdate(req)
+	case "install_windows_update":
+		kbs, reboot, err := winops.ParseInstallUpdate(payload)
+		if err != nil {
+			return nil, err
+		}
+		return winops.InstallKBs(kbs, reboot)
+	case "collect_inventory":
+		reportProgress(deps, 0)
+		return inventory.Collect(), nil
 	case "start_quick_assist":
 		req, err := winops.ParseAssist(payload)
 		if err != nil {
@@ -735,28 +744,116 @@ func asInt(v any) (int, error) {
 	}
 }
 
-func runScript(script string) (any, error) {
+func runScriptBody(body map[string]any) (any, error) {
+	script, _ := body["script"].(string)
 	if script == "" {
 		return nil, errors.New("empty script")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", script)
+	language, _ := body["language"].(string)
+	if params, ok := body["parameters"].(map[string]any); ok {
+		script = applyScriptParams(script, params)
 	}
+	timeout := 60 * time.Second
+	switch n := body["timeoutSeconds"].(type) {
+	case float64:
+		if n >= 1 && n <= 3600 {
+			timeout = time.Duration(n) * time.Second
+		}
+	case int:
+		if n >= 1 && n <= 3600 {
+			timeout = time.Duration(n) * time.Second
+		}
+	}
+	bin, args, err := scriptArgs(language, script)
+	if err != nil {
+		return map[string]any{"stdout": "", "stderr": err.Error(), "exitCode": 127}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	procutil.Harden(cmd, 10*time.Second)
-	err := cmd.Run()
-	out := stdout.String()
-	if len(out) > 65536 {
-		out = out[:65536]
+	err = cmd.Run()
+	out := capStream(stdout.String())
+	errOut := capStream(stderr.String())
+	code := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			code = exitErr.ExitCode()
+		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			code = -1
+			err = errors.New("timeout")
+		} else {
+			code = 1
+		}
 	}
-	return map[string]any{"stdout": out, "stderr": stderr.String()}, err
+	result := map[string]any{"stdout": out, "stderr": errOut, "exitCode": code, "truncated": len(stdout.String()) > 65536 || len(stderr.String()) > 65536}
+	return result, err
+}
+
+func capStream(s string) string {
+	if len(s) > 65536 {
+		return s[:65536]
+	}
+	return s
+}
+
+func applyScriptParams(script string, params map[string]any) string {
+	for key, value := range params {
+		text, _ := value.(string)
+		if len(text) > 1024 {
+			text = text[:1024]
+		}
+		script = strings.ReplaceAll(script, "{{"+key+"}}", text)
+	}
+	return script
+}
+
+func scriptArgs(language, script string) (string, []string, error) {
+	switch strings.ToLower(strings.TrimSpace(language)) {
+	case "", "powershell":
+		if language == "" && runtime.GOOS != "windows" {
+			return "sh", []string{"-c", script}, nil
+		}
+		bin := "powershell"
+		if runtime.GOOS != "windows" {
+			if _, err := exec.LookPath("pwsh"); err != nil {
+				return "", nil, errors.New("powershell_not_found")
+			}
+			bin = "pwsh"
+		}
+		return bin, []string{"-NoProfile", "-NonInteractive", "-Command", script}, nil
+	case "batch":
+		if runtime.GOOS == "windows" {
+			return "cmd", []string{"/C", script}, nil
+		}
+		return "sh", []string{"-c", script}, nil
+	case "shell":
+		if runtime.GOOS == "windows" {
+			return "cmd", []string{"/C", script}, nil
+		}
+		return "sh", []string{"-c", script}, nil
+	case "python":
+		bin, err := lookPython()
+		if err != nil {
+			return "", nil, err
+		}
+		return bin, []string{"-c", script}, nil
+	default:
+		return "", nil, errors.New("unsupported_language")
+	}
+}
+
+func lookPython() (string, error) {
+	for _, name := range []string{"python3", "python"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path, nil
+		}
+	}
+	return "", errors.New("python_not_found")
 }
 
 // validatePackageName rejects empty names and names that would be parsed as an

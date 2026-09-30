@@ -16,6 +16,7 @@ import {
 
 import { env } from "./env.js"
 import { emitFleet } from "./io-emit.js"
+import { applyCommandEffects } from "./command-effects.js"
 import { enqueueAlert } from "./notify.js"
 import { getSettings } from "./settings.js"
 import { ingestCredentialResult } from "./vault.js"
@@ -283,6 +284,12 @@ export async function ingestCommandResult(
       body: needsSecretRedaction(updated.type)
         ? `${updated.type} failed (secrets omitted)`
         : `${updated.type}: ${JSON.stringify(stored ?? {})}`,
+    })
+  }
+  const full = await prisma.command.findUnique({ where: { id: updated.id } })
+  if (full) {
+    await applyCommandEffects(device.id, full).catch((error) => {
+      app.log.error({ err: error, commandId: full.id }, "command side effect failed")
     })
   }
   if (updated.type === "kill_switch" && terminal.has(updated.status)) {

@@ -296,7 +296,13 @@ export const commandPayloadSchemas = {
     .object({ name: commandNameSchema.optional(), id: commandNameSchema.optional() })
     .refine((v) => Boolean(v.name || v.id), "name or id required"),
   uninstall_app: z.object({ name: commandNameSchema }),
-  run_script: z.object({ script: z.string().min(1).max(65_536) }),
+  run_script: z.object({
+    script: z.string().min(1).max(65_536),
+    language: z.enum(["powershell", "python", "batch", "shell"]).optional(),
+    timeoutSeconds: z.number().int().min(1).max(3600).optional(),
+    scriptRunId: z.string().min(1).max(128).optional(),
+    parameters: z.record(z.string().max(64), z.string().max(1024)).optional(),
+  }),
   kill_process: z
     .object({
       pid: z.number().int().min(1).optional(),
@@ -359,6 +365,15 @@ export const commandPayloadSchemas = {
     log: z.string().min(1).max(256).optional(),
     newest: z.number().int().min(1).max(200).optional(),
     level: z.enum(["all", "critical", "error", "warning", "information", "verbose"]).optional(),
+    eventId: z.number().int().min(0).max(65535).optional(),
+    source: z.string().max(128).optional(),
+    since: z.string().max(40).optional(),
+    until: z.string().max(40).optional(),
+  }),
+  collect_inventory: z.object({}),
+  install_windows_update: z.object({
+    kbs: z.array(z.string().regex(/^KB\d{4,10}$/)).min(1).max(40),
+    reboot: z.enum(["never", "if_required", "scheduled"]).optional(),
   }),
   get_windows_update: z.object({
     online: z.boolean().optional(),

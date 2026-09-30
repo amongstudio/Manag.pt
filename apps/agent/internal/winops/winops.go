@@ -3,7 +3,10 @@ package winops
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -19,15 +22,17 @@ const (
 	maxKB          = 16
 )
 
+var kbArticle = regexp.MustCompile(`^KB\d{4,10}$`)
+
 var (
-	ErrUnsupported     = errors.New("unsupported")
-	ErrInvalidPayload  = errors.New("invalid_windows_payload")
-	ErrAccessDenied    = errors.New("event_log_access_denied")
-	ErrQueryFailed     = errors.New("event_log_query_failed")
-	ErrWUAPI           = errors.New("wuapi_unavailable")
-	ErrNoSession       = errors.New("no_interactive_session")
-	ErrAssistNotFound  = errors.New("quick_assist_not_found")
-	ErrAssistRefused   = errors.New("quick_assist_refused")
+	ErrUnsupported          = errors.New("unsupported")
+	ErrInvalidPayload       = errors.New("invalid_windows_payload")
+	ErrAccessDenied         = errors.New("event_log_access_denied")
+	ErrQueryFailed          = errors.New("event_log_query_failed")
+	ErrWUAPI                = errors.New("wuapi_unavailable")
+	ErrNoSession            = errors.New("no_interactive_session")
+	ErrAssistNotFound       = errors.New("quick_assist_not_found")
+	ErrAssistRefused        = errors.New("quick_assist_refused")
 	ErrWACAccessDenied      = errors.New("wac_access_denied")
 	ErrTaskAccessDenied     = errors.New("task_access_denied")
 	ErrTaskNotFound         = errors.New("task_not_found")
@@ -45,9 +50,13 @@ var (
 )
 
 type EventLogRequest struct {
-	Log    string
-	Newest int
-	Level  string
+	Log     string
+	Newest  int
+	Level   string
+	EventID int
+	Source  string
+	Since   string
+	Until   string
 }
 
 type EventEntry struct {
@@ -107,12 +116,12 @@ type AdminCenterResult struct {
 }
 
 const (
-	maxTaskPath     = 512
-	maxTaskQuery    = 256
-	maxTasks        = 1500
-	maxCapabilities = 500
-	maxQuery        = 256
-	maxThreats      = 80
+	maxTaskPath      = 512
+	maxTaskQuery     = 256
+	maxTasks         = 1500
+	maxCapabilities  = 500
+	maxQuery         = 256
+	maxThreats       = 80
 	MediaFeaturePack = "Media.MediaFeaturePack~~~~0.0.1.0"
 )
 
@@ -299,25 +308,25 @@ type BitLockerResult struct {
 }
 
 type BitLockerWriteRequest struct {
-	Action             string
-	MountPoint         string
-	Password           string
-	RecoveryPassword   string
-	ProtectorType      string
-	ProtectorID        string
-	EncryptionMethod   string
-	UsedSpaceOnly      bool
-	UsedSpaceOnlySet   bool
+	Action           string
+	MountPoint       string
+	Password         string
+	RecoveryPassword string
+	ProtectorType    string
+	ProtectorID      string
+	EncryptionMethod string
+	UsedSpaceOnly    bool
+	UsedSpaceOnlySet bool
 }
 
 type BitLockerWriteResult struct {
-	Action           string         `json:"action"`
-	MountPoint       string         `json:"mountPoint"`
-	Applied          bool           `json:"applied"`
-	RecoveryPassword string         `json:"recoveryPassword,omitempty"`
-	ProtectorID      string         `json:"protectorId,omitempty"`
+	Action           string           `json:"action"`
+	MountPoint       string           `json:"mountPoint"`
+	Applied          bool             `json:"applied"`
+	RecoveryPassword string           `json:"recoveryPassword,omitempty"`
+	ProtectorID      string           `json:"protectorId,omitempty"`
 	Credentials      []map[string]any `json:"credentials,omitempty"`
-	Notes            []string       `json:"notes,omitempty"`
+	Notes            []string         `json:"notes,omitempty"`
 }
 
 type CapabilitiesRequest struct {
@@ -341,9 +350,13 @@ func ParseEventLog(raw json.RawMessage) (EventLogRequest, error) {
 		return req, nil
 	}
 	var body struct {
-		Log    string `json:"log"`
-		Newest int    `json:"newest"`
-		Level  string `json:"level"`
+		Log     string `json:"log"`
+		Newest  int    `json:"newest"`
+		Level   string `json:"level"`
+		EventID int    `json:"eventId"`
+		Source  string `json:"source"`
+		Since   string `json:"since"`
+		Until   string `json:"until"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return EventLogRequest{}, ErrInvalidPayload
@@ -364,7 +377,61 @@ func ParseEventLog(raw json.RawMessage) (EventLogRequest, error) {
 		return EventLogRequest{}, err
 	}
 	req.Level = level
+	if body.EventID < 0 || body.EventID > 65535 {
+		return EventLogRequest{}, ErrInvalidPayload
+	}
+	req.EventID = body.EventID
+	source, err := normalizeSource(body.Source)
+	if err != nil {
+		return EventLogRequest{}, err
+	}
+	req.Source = source
+	since, err := normalizeTime(body.Since)
+	if err != nil {
+		return EventLogRequest{}, err
+	}
+	until, err := normalizeTime(body.Until)
+	if err != nil {
+		return EventLogRequest{}, err
+	}
+	req.Since = since
+	req.Until = until
 	return req, nil
+}
+
+func ParseInstallUpdate(raw json.RawMessage) ([]string, string, error) {
+	var body struct {
+		KBs    []string `json:"kbs"`
+		Reboot string   `json:"reboot"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, "", ErrInvalidPayload
+	}
+	if len(body.KBs) == 0 || len(body.KBs) > 40 {
+		return nil, "", ErrInvalidPayload
+	}
+	out := make([]string, 0, len(body.KBs))
+	seen := map[string]struct{}{}
+	for _, kb := range body.KBs {
+		kb = strings.ToUpper(strings.TrimSpace(kb))
+		if !kbArticle.MatchString(kb) {
+			return nil, "", ErrInvalidPayload
+		}
+		if _, ok := seen[kb]; ok {
+			continue
+		}
+		seen[kb] = struct{}{}
+		out = append(out, kb)
+	}
+	reboot := strings.ToLower(strings.TrimSpace(body.Reboot))
+	switch reboot {
+	case "", "never":
+		reboot = "never"
+	case "if_required", "scheduled":
+	default:
+		return nil, "", ErrInvalidPayload
+	}
+	return out, reboot, nil
 }
 
 func ParseUpdate(raw json.RawMessage) (UpdateRequest, error) {
@@ -762,21 +829,75 @@ func normalizeApp(v string) (string, error) {
 	}
 }
 
-func xpathForLevel(level string) string {
+func normalizeSource(v string) (string, error) {
+	s := strings.TrimSpace(v)
+	if s == "" {
+		return "", nil
+	}
+	if utf8.RuneCountInString(s) > 128 || strings.ContainsAny(s, "'\"\r\n\x00\\") {
+		return "", ErrInvalidPayload
+	}
+	return s, nil
+}
+
+func normalizeTime(v string) (string, error) {
+	s := strings.TrimSpace(v)
+	if s == "" {
+		return "", nil
+	}
+	parsed, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return "", ErrInvalidPayload
+	}
+	return parsed.UTC().Format(time.RFC3339), nil
+}
+
+func levelPredicate(level string) string {
 	switch level {
 	case "critical":
-		return "*[System[(Level=1)]]"
+		return "(Level=1)"
 	case "error":
-		return "*[System[(Level=1 or Level=2)]]"
+		return "(Level=1 or Level=2)"
 	case "warning":
-		return "*[System[(Level=1 or Level=2 or Level=3)]]"
+		return "(Level=1 or Level=2 or Level=3)"
 	case "information":
-		return "*[System[(Level=4 or Level=0)]]"
+		return "(Level=4 or Level=0)"
 	case "verbose":
-		return "*[System[(Level=5)]]"
+		return "(Level=5)"
 	default:
+		return ""
+	}
+}
+
+func xpathQuery(req EventLogRequest) string {
+	var parts []string
+	if pred := levelPredicate(req.Level); pred != "" {
+		parts = append(parts, pred)
+	}
+	if req.EventID > 0 {
+		parts = append(parts, fmt.Sprintf("(EventID=%d)", req.EventID))
+	}
+	if req.Source != "" {
+		parts = append(parts, fmt.Sprintf("(Provider[@Name='%s'])", req.Source))
+	}
+	var times []string
+	if req.Since != "" {
+		times = append(times, fmt.Sprintf("@SystemTime>='%s'", req.Since))
+	}
+	if req.Until != "" {
+		times = append(times, fmt.Sprintf("@SystemTime<='%s'", req.Until))
+	}
+	if len(times) > 0 {
+		parts = append(parts, "(TimeCreated["+strings.Join(times, " and ")+"])")
+	}
+	if len(parts) == 0 {
 		return "*"
 	}
+	return "*[System[" + strings.Join(parts, " and ") + "]]"
+}
+
+func xpathForLevel(level string) string {
+	return xpathQuery(EventLogRequest{Level: level})
 }
 
 func clipMessage(s string) string {

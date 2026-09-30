@@ -47,6 +47,7 @@ type Config struct {
 	EnablePlugins         bool     `yaml:"enable_plugins"`
 	EnableScreenshot      bool     `yaml:"enable_screenshot"`
 	EnableWebrtc          bool     `yaml:"enable_webrtc"`
+	WatchedServiceNames   []string `yaml:"watched_services"`
 	configPath            string
 	tried                 []string
 	store                 storeKind
@@ -101,6 +102,7 @@ type fileOverlay struct {
 	EnablePlugins         *bool    `yaml:"enable_plugins"`
 	EnableScreenshot      *bool    `yaml:"enable_screenshot"`
 	EnableWebrtc          *bool    `yaml:"enable_webrtc"`
+	WatchedServiceNames   []string `yaml:"watched_services"`
 }
 
 type fileShape struct {
@@ -124,6 +126,7 @@ type fileShape struct {
 	EnablePlugins         bool     `yaml:"enable_plugins"`
 	EnableScreenshot      bool     `yaml:"enable_screenshot"`
 	EnableWebrtc          bool     `yaml:"enable_webrtc"`
+	WatchedServiceNames   []string `yaml:"watched_services"`
 }
 
 func Default() Config {
@@ -241,6 +244,9 @@ func applyOverlay(cfg *Config, o fileOverlay, raw []byte) {
 	}
 	if _, ok := present["sandbox_roots"]; ok {
 		cfg.SandboxRoots = append([]string(nil), o.SandboxRoots...)
+	}
+	if _, ok := present["watched_services"]; ok {
+		cfg.WatchedServiceNames = append([]string(nil), o.WatchedServiceNames...)
 	}
 	if o.StatusPort != nil {
 		cfg.StatusPort = *o.StatusPort
@@ -399,6 +405,7 @@ func (c *Config) snapshot() fileShape {
 		EnablePlugins:         c.EnablePlugins,
 		EnableScreenshot:      c.EnableScreenshot,
 		EnableWebrtc:          c.EnableWebrtc,
+		WatchedServiceNames:   append([]string(nil), c.WatchedServiceNames...),
 	}
 }
 

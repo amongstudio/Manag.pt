@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pc-manager/agent/internal/client"
@@ -63,6 +64,7 @@ type Manager struct {
 	wanMu     sync.Mutex
 	wanSess   map[string]*wanSession
 	relayWait map[string]chan relayReply
+	conns     atomic.Int32
 }
 
 func New(dataDir, deviceID string, sandbox func() *filemanager.Sandbox, log Logger) *Manager {
@@ -275,6 +277,22 @@ func cloneRevoked(in map[string]struct{}) map[string]struct{} {
 	return out
 }
 
+func acquireCount(n *atomic.Int32, max int32) bool {
+	for {
+		cur := n.Load()
+		if cur >= max {
+			return false
+		}
+		if n.CompareAndSwap(cur, cur+1) {
+			return true
+		}
+	}
+}
+
+func releaseCount(n *atomic.Int32) {
+	n.Add(-1)
+}
+
 func (m *Manager) acceptLoop(ln net.Listener, stop <-chan struct{}) {
 	for {
 		conn, err := ln.Accept()
@@ -286,7 +304,14 @@ func (m *Manager) acceptLoop(ln net.Listener, stop <-chan struct{}) {
 				return
 			}
 		}
-		go m.handleConn(conn)
+		if !acquireCount(&m.conns, 32) {
+			_ = conn.Close()
+			continue
+		}
+		go func(c net.Conn) {
+			defer releaseCount(&m.conns)
+			m.handleConn(c)
+		}(conn)
 	}
 }
 

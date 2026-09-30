@@ -1,6 +1,8 @@
 import { prisma } from "@workspace/db"
 import { REMOTE_SESSION_TTL_MS } from "@workspace/shared"
 
+import { appendAudit } from "./audit.js"
+
 export type PersistedE2E = {
   sessionId: string
   deviceId: string
@@ -16,6 +18,15 @@ export type WebrtcMeta = {
 
 const webrtcByDevice = new Map<string, WebrtcMeta>()
 
+function safeMeta(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
 function ttlDate(): Date {
   return new Date(Date.now() + REMOTE_SESSION_TTL_MS)
 }
@@ -26,6 +37,7 @@ export async function persistE2ESession(session: {
   operatorPub: string
   agentPub?: string
 }): Promise<void> {
+  const existing = await prisma.remoteSession.findUnique({ where: { id: session.sessionId }, select: { id: true } })
   await prisma.remoteSession.upsert({
     where: { id: session.sessionId },
     create: {
@@ -43,35 +55,72 @@ export async function persistE2ESession(session: {
       expiresAt: ttlDate(),
     },
   })
+  if (!existing) {
+    await appendAudit({
+      actor: "operator",
+      action: "remote_session_start",
+      deviceId: session.deviceId,
+      detail: { kind: "e2e", sessionId: session.sessionId },
+    })
+  }
 }
 
 export async function dropE2ESession(sessionId: string): Promise<void> {
+  const existing = await prisma.remoteSession.findFirst({ where: { id: sessionId, kind: "e2e" } })
   await prisma.remoteSession.deleteMany({ where: { id: sessionId, kind: "e2e" } })
+  if (existing) {
+    await appendAudit({
+      actor: "operator",
+      action: "remote_session_end",
+      deviceId: existing.deviceId,
+      detail: { kind: "e2e", sessionId },
+    })
+  }
 }
 
 export async function touchWebrtcSession(deviceId: string, kind?: string): Promise<void> {
-  const meta: WebrtcMeta = { lastKind: kind, updatedAt: Date.now() }
-  webrtcByDevice.set(deviceId, meta)
+  const live: WebrtcMeta = { lastKind: kind, updatedAt: Date.now() }
+  webrtcByDevice.set(deviceId, live)
   const id = `webrtc:${deviceId}`
+  const existing = await prisma.remoteSession.findUnique({ where: { id } })
+  const previous = existing?.meta ? safeMeta(existing.meta) : {}
+  const stored = { ...previous, lastKind: kind }
   await prisma.remoteSession.upsert({
     where: { id },
     create: {
       id,
       deviceId,
       kind: "webrtc",
-      meta: JSON.stringify({ lastKind: kind }),
+      meta: JSON.stringify(stored),
       expiresAt: ttlDate(),
     },
     update: {
-      meta: JSON.stringify({ lastKind: kind }),
+      meta: JSON.stringify(stored),
       expiresAt: ttlDate(),
     },
   })
+  if (!existing) {
+    await appendAudit({
+      actor: "operator",
+      action: "remote_session_start",
+      deviceId,
+      detail: { kind: "webrtc" },
+    })
+  }
 }
 
 export async function dropWebrtcSession(deviceId: string): Promise<void> {
   webrtcByDevice.delete(deviceId)
+  const existing = await prisma.remoteSession.findUnique({ where: { id: `webrtc:${deviceId}` } })
   await prisma.remoteSession.deleteMany({ where: { id: `webrtc:${deviceId}` } })
+  if (existing) {
+    await appendAudit({
+      actor: "operator",
+      action: "remote_session_end",
+      deviceId,
+      detail: { kind: "webrtc" },
+    })
+  }
 }
 
 export function webrtcMetaFor(deviceId: string): WebrtcMeta | undefined {

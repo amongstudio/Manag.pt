@@ -11,6 +11,7 @@ import { pluginIdFromPayload, runningCommandTimeoutMs } from "./command-policy.j
 import { env, dataPath } from "./env.js"
 import { emitFleet } from "./io-emit.js"
 import { enqueueAlert, flushNotifications } from "./notify.js"
+import { runPlatformJobs } from "./platform-jobs.js"
 import { expireRemoteSessions } from "./remote-session.js"
 import { getSettings } from "./settings.js"
 
@@ -287,4 +288,5 @@ async function runFastTicks(app: FastifyInstance): Promise<void> {
   await expirePendingDestructive(app).catch((error) => app.log.error(error))
   await pruneAbandonedTransfers().catch((error) => app.log.error(error))
   await expireRemoteSessions().catch((error) => app.log.error(error))
+  await runPlatformJobs(app).catch((error) => app.log.error(error))
 }

@@ -21,3 +21,5 @@ enable_temps: false
 enable_plugins: true
 enable_screenshot: true
 enable_webrtc: false
+# Service names sampled every 60s as service_up (1 running, 0 stopped). Empty skips them.
+watched_services: []

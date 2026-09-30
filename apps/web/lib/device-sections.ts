@@ -1,4 +1,8 @@
 export const DEVICE_ADMIN_TABS = [
+  { id: "metrics", label: "Metrics" },
+  { id: "hardware", label: "Hardware" },
+  { id: "software", label: "Software" },
+  { id: "users", label: "Users" },
   { id: "services", label: "Services" },
   { id: "registry", label: "Registry" },
   { id: "credentials", label: "Credentials" },

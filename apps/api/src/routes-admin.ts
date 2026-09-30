@@ -36,6 +36,8 @@ import { emitFleet } from "./io-emit.js"
 import { errorBody, multipartValue, pathExists, randomToken, safeUploadFilename, trySafePath, parseJson, updateKindFromArtifact } from "./lib.js"
 import { sqliteBackup } from "./jobs.js"
 import { filterPluginTargets } from "./plugin-access.js"
+import { appendAudit } from "./audit.js"
+import { operatorAuthorized } from "./operator-auth.js"
 import { getSettings, parseSettingsPatch, patchSettings } from "./settings.js"
 import { enqueueAlert } from "./notify.js"
 import { revokeMeshDevice } from "./mesh.js"
@@ -435,6 +437,14 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         })
       })
     )
+    if (type === "start_service" || type === "stop_service" || type === "restart_service" || type === "kill_process") {
+      const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
+      await appendAudit({
+        actor: authed.username || "operator",
+        action: type,
+        detail: { deviceIds, payload },
+      })
+    }
     if (type === "kill_switch") {
       await enqueueAlert(app, {
         type: "kill_switch",
@@ -710,7 +720,14 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.put(`${API_PREFIX}/admin/settings`, async (req, reply) => {
     try {
-      const next = await patchSettings(parseSettingsPatch(req.body))
+      const patch = parseSettingsPatch(req.body)
+      const next = await patchSettings(patch)
+      const authed = await operatorAuthorized(req.headers as Record<string, unknown>)
+      await appendAudit({
+        actor: authed.username || "operator",
+        action: "settings_update",
+        detail: { sections: Object.keys(patch) },
+      })
       return { settings: redactSettings(next) }
     } catch (error) {
       if (error && typeof error === "object" && "issues" in error) {
