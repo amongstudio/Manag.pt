@@ -29,7 +29,7 @@ const PROVIDERS = [
 
 type Provider = (typeof PROVIDERS)[number]["value"]
 
-type TunnelView = {
+export type TunnelView = {
   provider: Provider
   status: "stopped" | "starting" | "up" | "error"
   publicUrl: string
@@ -89,24 +89,25 @@ function payload(input: {
   return body
 }
 
-export function PublicAccess() {
+export function PublicAccess({ initial }: { initial?: TunnelView | null }) {
   const client = useQueryClient()
   const query = useQuery({
     queryKey: ["tunnel"],
     queryFn: () => api<{ tunnel: TunnelView }>("/api/v1/admin/tunnels"),
+    initialData: initial ? { tunnel: initial } : undefined,
     refetchInterval: (q) => {
       const status = q.state.data?.tunnel.status
       return status === "starting" || status === "up" ? 2000 : false
     },
   })
   const tunnel = query.data?.tunnel
-  const [provider, setProvider] = React.useState<Provider>("ngrok")
+  const [provider, setProvider] = React.useState<Provider>(initial?.provider ?? "ngrok")
   const [token, setToken] = React.useState("")
-  const [subdomain, setSubdomain] = React.useState("")
-  const [host, setHost] = React.useState("https://localtunnel.me")
-  const [exposeApi, setExposeApi] = React.useState(false)
-  const [webPort, setWebPort] = React.useState("3000")
-  const [apiPort, setApiPort] = React.useState("4000")
+  const [subdomain, setSubdomain] = React.useState(initial?.subdomain ?? "")
+  const [host, setHost] = React.useState(initial?.localtunnelHost ?? "https://localtunnel.me")
+  const [exposeApi, setExposeApi] = React.useState(initial?.exposeApi ?? false)
+  const [webPort, setWebPort] = React.useState(String(initial?.webPort ?? 3000))
+  const [apiPort, setApiPort] = React.useState(String(initial?.apiPort ?? 4000))
   const hydrated = React.useRef(false)
 
   React.useEffect(() => {

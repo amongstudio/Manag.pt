@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { api } from "@/lib/api"
-import { PublicAccess } from "@/components/public-access"
+import { PublicAccess, type TunnelView } from "@/components/public-access"
 import Link from "next/link"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
@@ -34,7 +34,15 @@ type ConfigResponse = {
   fileOnly: string[]
 }
 
-export function ConfigPage({ initial, agent }: { initial: ConfigResponse | null; agent: { pollIntervalSec: number; idleHeartbeatSec: number } | null }) {
+export function ConfigPage({
+  initial,
+  agent,
+  tunnel,
+}: {
+  initial: ConfigResponse | null
+  agent: { pollIntervalSec: number; idleHeartbeatSec: number } | null
+  tunnel?: TunnelView | null
+}) {
   const client = useQueryClient()
   const config = useQuery({
     queryKey: ["operator-config"],
@@ -138,7 +146,7 @@ export function ConfigPage({ initial, agent }: { initial: ConfigResponse | null;
         </Card>
       </TabsContent>
       <TabsContent value="public" className="mt-4">
-        <PublicAccess />
+        <PublicAccess initial={tunnel} />
       </TabsContent>
       <TabsContent value="helper" className="mt-4">
         <Card>
