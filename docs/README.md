@@ -12,6 +12,7 @@ Mnag.pt 3.3.0. These pages describe the code on `cursor/config-console-4753` and
 - [Inventory](users/inventory.md)
 - [Security scans](users/security-scans.md)
 - [Remote shell, desktop, and files](users/remote.md)
+- [Public access](users/public-access.md)
 
 ## Developers
 
