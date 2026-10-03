@@ -17,6 +17,8 @@ import { registerBuilderRoutes } from "./routes-builder.js"
 import { registerPlatformRoutes } from "./routes-platform.js"
 import { registerScanRoutes } from "./routes-scans.js"
 import { registerConfigRoutes } from "./routes-config.js"
+import { registerTunnelRoutes } from "./routes-tunnels.js"
+import { releaseTunnelProcesses, resumeTunnelIfEnabled } from "./tunnel-store.js"
 import { primeOperatorConfig } from "./operator-config.js"
 import { startJobs } from "./jobs.js"
 import { getSettings } from "./settings.js"
@@ -86,10 +88,14 @@ async function main() {
   await registerPlatformRoutes(app)
   await registerScanRoutes(app)
   await registerConfigRoutes(app)
+  await registerTunnelRoutes(app)
   startJobs(app)
 
   await app.listen({ port: env.port, host: env.host })
   app.log.info(`API listening on ${env.host}:${env.port}`)
+  await resumeTunnelIfEnabled().catch((error) => {
+    app.log.error({ err: error instanceof Error ? error.message : "tunnel_resume_failed" }, "tunnel resume failed")
+  })
   if (!operatorTokenConfigured() && !(await passwordAuthEnabled())) {
     app.log.warn(
       "OPERATOR_TOKEN is unset and no operator password exists; /api/v1/admin/* and Socket.io are open. Set OPERATOR_TOKEN in production."
@@ -105,6 +111,11 @@ async function main() {
       await app.io.close()
     } catch {
       /* ignore */
+    }
+    try {
+      await releaseTunnelProcesses()
+    } catch (error) {
+      app.log.error({ err: error instanceof Error ? error.message : "tunnel_release_failed" }, "tunnel release failed")
     }
     try {
       await app.close()

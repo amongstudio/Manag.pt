@@ -1,5 +1,5 @@
 APP=pc-manager-helper
-VERSION?=3.3.0
+VERSION?=3.4.0
 LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION)"
 WIN_LDFLAGS=-ldflags "-s -w -H windowsgui -X main.Version=$(VERSION)"
 WINRES=github.com/tc-hib/go-winres@v0.3.3

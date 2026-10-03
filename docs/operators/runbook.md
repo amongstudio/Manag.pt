@@ -13,6 +13,10 @@ Change operator-editable values on **Configuration** and **Settings**. Do not ha
 - Every save writes `AuditLog` action `config_save` with the section and key names, not secret values.
 - `PUBLIC_URL`, enrollment secret, credentials key, operator token, and compile enable stay in the environment. Restart the API after changing them. Script cron expressions are still checked on the Scripts page (`invalid_cron`).
 
+## Public access
+
+Configuration → Public access starts one reverse tunnel for the dashboard (default `127.0.0.1:3000`) and, if the operator turns it on, a second tunnel for the API port (default `127.0.0.1:4000`). The API restarts a tunnel it started if that process exits, with backoff, and stops after five retries. Stop signals only that process id. Nothing is published on boot unless `enabled` was saved by Start. Provider tokens are write-only in the `tunnel` settings row. Audit actions are `tunnel_save`, `tunnel_start`, and `tunnel_stop` with the provider name, not the secret. The operator token and scan allowlist still apply. Details: [Public access](../users/public-access.md).
+
 ## Scanner binaries
 
 Install on the **agent host**, not necessarily the API host. The API only queues the command.
@@ -32,9 +36,9 @@ Keep lab mode on until authorized networks list only ranges you own. Edit that l
 ## Rollback
 
 ```bash
-git tag v3.3.0 <sha>
-git push origin v3.3.0
-git checkout v3.3.0
+git tag v3.4.0 <sha>
+git push origin v3.4.0
+git checkout v3.4.0
 ```
 
 Push the tag only when you mean to publish it. Migrations 0017–0019 are additive. Restoring an older binary leaves the new tables in place. Restoring `data/pcmanager.db` from `data/backups/` is the data rollback, and only while the API is stopped.

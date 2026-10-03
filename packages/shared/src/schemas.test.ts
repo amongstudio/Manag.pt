@@ -54,8 +54,8 @@ import {
   registryDisplayPath,
 } from "./index.ts"
 
-test("app version is 3.3.0", () => {
-  assert.equal(APP_VERSION, "3.3.0")
+test("app version is 3.4.0", () => {
+  assert.equal(APP_VERSION, "3.4.0")
 })
 
 test("shell socket events match agent-ws type strings", () => {

@@ -37,7 +37,7 @@ import { NetworkManager } from "@/components/network-manager"
 import { QueryErrorBanner, QueryErrorState } from "@/components/query-error"
 import { RegistryEditor } from "@/components/registry-editor"
 import { AssistantPanel } from "@/components/assistant-panel"
-import { DeviceHardware, DeviceMetrics, DeviceSoftware, DeviceUsers } from "@/components/device-assets"
+import { DeviceHardware, DeviceMetrics, DeviceServiceSnapshot, DeviceSoftware, DeviceUsers } from "@/components/device-assets"
 import { ServiceManager } from "@/components/service-manager"
 import { WindowsTools } from "@/components/windows-tools"
 import { useDeviceSubscription, useSocket } from "@/components/providers"
@@ -191,7 +191,7 @@ function latestProcessSnapshot(commands: CommandRow[]): ProcessRow[] | null {
   return null
 }
 
-export function DeviceDetail({ id }: { id: string }) {
+export function DeviceDetail({ id, initialInventory = null }: { id: string; initialInventory?: unknown }) {
   const router = useRouter()
   const client = useQueryClient()
   const socket = useSocket()
@@ -706,15 +706,17 @@ export function DeviceDetail({ id }: { id: string }) {
               <DeviceMetrics deviceId={id} />
             </TabsContent>
             <TabsContent value="hardware">
-              <DeviceHardware deviceId={id} />
+              <DeviceHardware deviceId={id} initial={initialInventory as never} />
             </TabsContent>
             <TabsContent value="software">
-              <DeviceSoftware deviceId={id} />
+              <DeviceSoftware deviceId={id} initial={initialInventory as never} />
             </TabsContent>
             <TabsContent value="users">
               <DeviceUsers deviceId={id} />
             </TabsContent>
             <TabsContent value="services">
+              <div className="flex flex-col gap-6">
+              <DeviceServiceSnapshot deviceId={id} initial={initialInventory as never} />
               <ServiceManager
                 deviceId={id}
                 platform={device.platform}
@@ -722,6 +724,7 @@ export function DeviceDetail({ id }: { id: string }) {
                 online={device.status === "online"}
                 latestSuccessful={query.data.latestSuccessful?.get_services ?? null}
               />
+              </div>
             </TabsContent>
             <TabsContent value="registry">
               <RegistryEditor

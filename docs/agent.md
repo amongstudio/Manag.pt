@@ -1,6 +1,6 @@
 # Agent
 
-Cross-platform Go binary for **Mnag.pt** (version **3.3.0**). **WebSocket-first** (`/agent-ws`): presence-only idle heartbeats (~90s) that refresh `lastSeen`, HTTP long-poll only if the WS is down. Optional local status at `http://127.0.0.1:17890/status`. Optional helper watchdog: [docs/helper.md](helper.md).
+Cross-platform Go binary for **Mnag.pt** (version **3.4.0**). **WebSocket-first** (`/agent-ws`): presence-only idle heartbeats (~90s) that refresh `lastSeen`, HTTP long-poll only if the WS is down. Optional local status at `http://127.0.0.1:17890/status`. Optional helper watchdog: [docs/helper.md](helper.md).
 
 Masria Code · [Contact@Mnag.pt.com](mailto:Contact@Mnag.pt.com) · [https://Mnag.pt](https://Mnag.pt)
 
@@ -162,7 +162,7 @@ Installs a systemd unit `pc-manager-agent`.
 
 Operators upload binaries (version, platform, arch, notes) in Settings → Agent binaries. The agent polls `GET /api/v1/agent/update`. Download is skipped when the current semver is greater than or equal to the remote (after trimming `v`). Downloads are capped at 100MB (`Content-Length` and `LimitReader`). SHA-256 is verified; the previous binary is kept as `*.bak`. After apply, the agent runs `<exe> version`; if that fails, it restores `.bak` (Linux rename; Windows update bat restores bak and restarts the service if `version` or `sc start` fails).
 
-Build all targets: `make dist` in `apps/agent` (`VERSION=3.3.0` and `DEFAULT_SERVER_URL` by default). Goreleaser config is `.goreleaser.yaml`.
+Build all targets: `make dist` in `apps/agent` (`VERSION=3.4.0` and `DEFAULT_SERVER_URL` by default). Goreleaser config is `.goreleaser.yaml`.
 
 ## Sandbox
 

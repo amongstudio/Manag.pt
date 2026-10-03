@@ -69,6 +69,7 @@ type VaultRow = VaultCredential & {
   id?: string
   hasSecret?: boolean
   backedUpAt?: string
+  scope?: string
 }
 
 const SOURCES = ["all", "windows", "browser", "apps", "generated", "bitlocker"] as const
@@ -76,9 +77,7 @@ const SOURCES = ["all", "windows", "browser", "apps", "generated", "bitlocker"] 
 export function CredentialsManager({
   deviceId,
   platform,
-  commands,
   online = false,
-  latestSuccessful,
 }: {
   deviceId: string
   platform: string
@@ -101,15 +100,13 @@ export function CredentialsManager({
   const [genOpen, setGenOpen] = React.useState(false)
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set())
   const pendingId = React.useRef<string | null>(null)
-  const seeded = React.useRef<string | null>(null)
-  const autoQueued = React.useRef(false)
   const onlineRef = React.useRef(online)
   onlineRef.current = online
 
   const vaultQuery = useQuery({
     queryKey: ["vault", deviceId],
     queryFn: () => api<{ credentials: VaultRow[] }>(`/api/v1/admin/devices/${deviceId}/credentials`),
-    enabled: windows,
+    enabled: true,
   })
 
   const queue = React.useCallback(
@@ -163,31 +160,6 @@ export function CredentialsManager({
   )
 
   React.useEffect(() => {
-    if (!windows) return
-    if (seeded.current === deviceId) {
-      if (online && !autoQueued.current && !pendingId.current) {
-        autoQueued.current = true
-        void queue("get_credentials", { sources: ["windows", "browser", "apps"] })
-      }
-      return
-    }
-    seeded.current = deviceId
-    autoQueued.current = false
-    const success =
-      latestSuccessful?.status === "success"
-        ? latestSuccessful
-        : commands?.find((c) => c.type === "get_credentials" && c.status === "success")
-    if (success) {
-      setAgent(parseCredentials(success.result))
-      setListed(true)
-    }
-    if (online) {
-      autoQueued.current = true
-      void queue("get_credentials", { sources: ["windows", "browser", "apps"] })
-    }
-  }, [commands, deviceId, latestSuccessful, online, queue, windows])
-
-  React.useEffect(() => {
     if (!socket) return
     const onResult = (payload: { deviceId?: string; type?: string; status?: string; result?: unknown }) => {
       if (payload.deviceId !== deviceId) return
@@ -208,14 +180,6 @@ export function CredentialsManager({
       socket.off(WS_EVENTS.COMMAND_RESULT, onResult)
     }
   }, [client, deviceId, socket])
-
-  if (!windows) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Credentials Manager uses Windows Credential Manager and browser login stores. Linux/mac agents are not supported.
-      </p>
-    )
-  }
 
   const vaultRows = vaultQuery.data?.credentials ?? []
   const vaultByKey = new Map(vaultRows.map((row) => [row.key, row]))
@@ -270,7 +234,8 @@ export function CredentialsManager({
   async function revealRow(row: VaultRow) {
     if (row.id && row.hasSecret) {
       const data = await api<{ credential: { secret?: string; target: string } }>(
-        `/api/v1/admin/devices/${deviceId}/credentials/${row.id}?reveal=1`
+        `/api/v1/admin/devices/${deviceId}/credentials/${row.id}/reveal`,
+        { method: "POST", body: JSON.stringify({ scope: row.scope === "fleet" ? "fleet" : "device" }) }
       )
       setReveal({ target: data.credential.target, secret: data.credential.secret || "" })
       return
@@ -300,7 +265,8 @@ export function CredentialsManager({
       return
     }
     const data = await api<{ credential: { secret?: string; target: string } }>(
-      `/api/v1/admin/devices/${deviceId}/credentials/${match.id}?reveal=1`
+      `/api/v1/admin/devices/${deviceId}/credentials/${match.id}/reveal`,
+      { method: "POST", body: JSON.stringify({ scope: match.scope === "fleet" ? "fleet" : "device" }) }
     )
     setReveal({ target: data.credential.target, secret: data.credential.secret || "" })
   }
@@ -350,15 +316,10 @@ export function CredentialsManager({
         </Card>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!online || pending}
-          onClick={() => void queue("get_credentials", { sources: ["windows", "browser", "apps"] })}
-        >
-          {pending ? <Spinner className="size-4" /> : null}
+        <Button size="sm" variant="outline" onClick={() => void vaultQuery.refetch()}>
           Refresh
         </Button>
+        {windows ? (
         <Button
           size="sm"
           variant="outline"
@@ -368,7 +329,7 @@ export function CredentialsManager({
               title: "Back up credentials?",
               message: credentialBackupConfirm(),
               run: async () => {
-                const cmd = await queue("backup_credentials", { sources: ["windows", "browser", "apps"] }, 120_000)
+                const cmd = await queue("backup_credentials", { sources: ["windows", "apps"] }, 120_000)
                 if (cmd) toast.success("Vault updated")
               },
             })
@@ -376,6 +337,7 @@ export function CredentialsManager({
         >
           Backup to vault
         </Button>
+        ) : null}
         <Button
           size="sm"
           variant="outline"
@@ -405,12 +367,14 @@ export function CredentialsManager({
         >
           Restore vault
         </Button>
-        <Button size="sm" variant="outline" disabled={!online || pending} onClick={() => setWriteOpen(true)}>
+        <Button size="sm" variant="outline" onClick={() => setWriteOpen(true)}>
           New credential
         </Button>
+        {windows ? (
         <Button size="sm" variant="outline" disabled={!online || pending} onClick={() => setGenOpen(true)}>
           Generate
         </Button>
+        ) : null}
         <Button
           size="sm"
           variant="outline"
@@ -483,8 +447,7 @@ export function CredentialsManager({
           <EmptyHeader>
             <EmptyTitle>No credentials yet</EmptyTitle>
             <EmptyDescription>
-              Refresh to list Windows Credential Manager, app stores, and browser logins. An empty list often means Session 0 / no
-              interactive user (DPAPI), not that the machine has no secrets. Restore skips browsers and BitLocker recovery keys.
+              Save a credential in this product vault. The list never includes the secret. Reveal loads it only after you confirm. Fleet credentials stay off this device list unless you mark them fleet and open the fleet view.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -614,12 +577,23 @@ export function CredentialsManager({
         pending={pending}
         onSubmit={(payload) =>
           setConfirm({
-            title: "Write credential?",
+            title: "Save credential?",
             message: credentialWriteConfirm(payload.target),
             run: async () => {
               setWriteOpen(false)
-              const cmd = await queue("set_credential", payload)
-              if (cmd) toast.success("Credential written")
+              await api(`/api/v1/admin/devices/${deviceId}/credentials`, {
+                method: "POST",
+                body: JSON.stringify({
+                  target: payload.target,
+                  username: payload.username,
+                  secret: payload.secret,
+                  comment: payload.comment,
+                  source: "vault",
+                  scope: payload.scope,
+                }),
+              })
+              await client.invalidateQueries({ queryKey: ["vault", deviceId] })
+              toast.success("Saved in the vault")
             },
           })
         }
@@ -641,7 +615,8 @@ export function CredentialsManager({
               const vaultId = (cmd.result as { vaultId?: string } | null)?.vaultId
               if (vaultId) {
                 const data = await api<{ credential: { secret?: string; target: string } }>(
-                  `/api/v1/admin/devices/${deviceId}/credentials/${vaultId}?reveal=1`
+                  `/api/v1/admin/devices/${deviceId}/credentials/${vaultId}/reveal`,
+                  { method: "POST", body: "{}" }
                 )
                 setReveal({ target: data.credential.target, secret: data.credential.secret || "" })
               }
@@ -707,19 +682,20 @@ function WriteDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
   pending: boolean
-  onSubmit: (payload: { target: string; username: string; secret: string; source: string; persist: string; comment?: string }) => void
+  onSubmit: (payload: { target: string; username: string; secret: string; source: string; persist: string; comment?: string; scope: "device" | "fleet" }) => void
 }) {
   const [target, setTarget] = React.useState("")
   const [username, setUsername] = React.useState("")
   const [secret, setSecret] = React.useState("")
   const [source, setSource] = React.useState("windows")
   const [persist, setPersist] = React.useState("local")
+  const [scope, setScope] = React.useState<"device" | "fleet">("device")
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Write credential</DialogTitle>
-          <DialogDescription>CredWrite on the signed-in user store, then AES-256-GCM in the dashboard vault. Never writes the SYSTEM service store.</DialogDescription>
+          <DialogTitle>Save credential</DialogTitle>
+          <DialogDescription>Stores the secret in this product vault with AES-256-GCM. It is not written to Windows Credential Manager, browsers, or Wi-Fi profiles.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
@@ -759,8 +735,18 @@ function WriteDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={pending || !target || !secret} onClick={() => onSubmit({ target, username, secret, source, persist })}>
-            Write
+          <Field>
+            <FieldLabel>Scope</FieldLabel>
+            <div className="flex gap-2">
+              {(["device", "fleet"] as const).map((item) => (
+                <Button key={item} size="sm" variant={scope === item ? "secondary" : "outline"} type="button" onClick={() => setScope(item)}>
+                  {item}
+                </Button>
+              ))}
+            </div>
+          </Field>
+          <Button disabled={pending || !target || !secret} onClick={() => onSubmit({ target, username, secret, source, persist, scope })}>
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>

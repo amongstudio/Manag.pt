@@ -1,6 +1,6 @@
 # Mnag.pt operator runbook
 
-Version **3.3.0**. This file is the local deploy, rollback, and limit list for the RMM work on `cursor/rmm-platform-4753`.
+Version **3.4.0**. This file is the local deploy, rollback, and limit list for the RMM work on `cursor/rmm-platform-4753`.
 
 ## Deploy locally
 
@@ -37,9 +37,9 @@ SQLite is not SQLCipher. Prisma talks to the existing `file:` database; enabling
 Do not push a tag from this environment unless you intend to publish it. To mark the previous release after you have chosen the commit:
 
 ```bash
-git tag v3.3.0 <sha>
-git push origin v3.3.0
-git checkout v3.3.0
+git tag v3.4.0 <sha>
+git push origin v3.4.0
+git checkout v3.4.0
 ```
 
 Schema changes in `packages/db/prisma/migrations/0017_platform` and `0018_inventory` are additive. Rolling the binary back without restoring a SQLite backup leaves the new tables in place; the older API ignores them. Restoring `data/pcmanager.db` from `data/backups/` is the data rollback. Copy the db only while the API is stopped.
@@ -93,7 +93,7 @@ This environment cannot run Inno Setup or a Windows VM. The script was checked a
 - **PR #1** (`cursor/cloud-env-setup-4753`, "Add a Cloud Agent environment for local development") was still **open** when this branch was cut. **PR #2** (`cursor/stability-fixes-4753`, Linux agent build) is **merged**. Do not merge or close either pull request from the agent. An operator with GitHub permissions should close PR #1 if the environment setup is already captured, and should leave PR #2 merged.
 - **Branch protection on `main`.** Require the `CI` / `check` workflow before merge. This environment cannot change GitHub branch protection.
 - **Code signing** needs a real `CERT_THUMBPRINT` and Windows `signtool`. Nothing in the repo is signed.
-- **Pushing `v3.3.0`** is an operator action. The tag command is above; this branch does not push a tag.
+- **Pushing `v3.4.0`** is an operator action. The tag command is above; this branch does not push a tag.
 
 ## Security scans
 
