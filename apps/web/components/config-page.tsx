@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { api } from "@/lib/api"
+import { PublicAccess, type TunnelView } from "@/components/public-access"
 import Link from "next/link"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
@@ -33,7 +34,15 @@ type ConfigResponse = {
   fileOnly: string[]
 }
 
-export function ConfigPage({ initial, agent }: { initial: ConfigResponse | null; agent: { pollIntervalSec: number; idleHeartbeatSec: number } | null }) {
+export function ConfigPage({
+  initial,
+  agent,
+  tunnel,
+}: {
+  initial: ConfigResponse | null
+  agent: { pollIntervalSec: number; idleHeartbeatSec: number } | null
+  tunnel?: TunnelView | null
+}) {
   const client = useQueryClient()
   const config = useQuery({
     queryKey: ["operator-config"],
@@ -82,6 +91,7 @@ export function ConfigPage({ initial, agent }: { initial: ConfigResponse | null;
         <TabsTrigger value="api">API</TabsTrigger>
         <TabsTrigger value="agent">Agent</TabsTrigger>
         <TabsTrigger value="helper">Helper</TabsTrigger>
+        <TabsTrigger value="public">Public access</TabsTrigger>
       </TabsList>
       <TabsContent value="dashboard" className="mt-4 flex flex-col gap-3">
         <Card>
@@ -134,6 +144,9 @@ export function ConfigPage({ initial, agent }: { initial: ConfigResponse | null;
             </Button>
           </CardContent>
         </Card>
+      </TabsContent>
+      <TabsContent value="public" className="mt-4">
+        <PublicAccess initial={tunnel} />
       </TabsContent>
       <TabsContent value="helper" className="mt-4">
         <Card>

@@ -19,7 +19,8 @@ Earlier folders (`0001` through `0015`) create devices, commands, credentials, c
 - **Script / ScriptRun / ScriptSchedule** — `/api/v1/admin/scripts`, run, and the schedule job. Command results update the run
 - **MetricSample** — agent `metrics` frames. Pruned after 30 days
 - **AlertState, Notification** — rule evaluator and `enqueueAlert`
-- **AuditLog** — script changes, script runs, settings updates, service and process commands, remote sessions, automations, rules, scan start/end, finding acknowledge/accept/remediate/link
+- **AuditLog** — script changes, script runs, settings updates, service and process commands, remote sessions, automations, rules, scan start/end, finding acknowledge/accept/remediate/link, tunnel save/start/stop (provider name only)
+- **Setting `tunnel`** — reverse-tunnel provider, ports, public URL, status, and write-only provider tokens. Responses omit the tokens
 - **Inventory tables** — `collect_inventory` results through `upsertInventory`
 - **WindowsUpdate** — inventory updates and `get_windows_update`, plus the approval routes
 - **Scan / Finding / CveCache** — scan routes and `finishScan`

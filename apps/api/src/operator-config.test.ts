@@ -66,4 +66,5 @@ test("markdown escapes html and drops javascript links", () => {
   assert.equal(html.includes("javascript:"), false)
   assert.equal(safeDocSlug("../etc/passwd"), null)
   assert.equal(safeDocSlug("users/getting-started"), "users/getting-started")
+  assert.equal(safeDocSlug("users/public-access"), "users/public-access")
 })
