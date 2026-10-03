@@ -9,7 +9,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "test": "tsx --test src/enroll.test.ts src/lib.test.ts src/plugin-templates.test.ts src/compile.test.ts src/shell-relay.test.ts src/command-policy.test.ts src/stamp-install.test.ts src/chat.test.ts src/mesh-ca.test.ts src/operator-password.test.ts src/vault.test.ts src/platform.test.ts src/scan.test.ts src/operator-config.test.ts src/tunnel.test.ts"
+    "test": "tsx --test src/enroll.test.ts src/lib.test.ts src/plugin-templates.test.ts src/compile.test.ts src/shell-relay.test.ts src/command-policy.test.ts src/stamp-install.test.ts src/chat.test.ts src/mesh-ca.test.ts src/operator-password.test.ts src/vault.test.ts src/vault-store.test.ts src/platform.test.ts src/scan.test.ts src/operator-config.test.ts src/tunnel.test.ts src/inventory-live.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.1",

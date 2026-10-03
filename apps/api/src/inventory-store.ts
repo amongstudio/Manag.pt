@@ -39,8 +39,11 @@ export async function upsertInventory(deviceId: string, raw: unknown): Promise<b
       create: { deviceId, ...report.hardware, collectedAt },
       update: { ...report.hardware, collectedAt },
     })
-    if (report.os.name || report.os.version) {
-      await tx.operatingSystem.create({ data: { deviceId, ...report.os, collectedAt } })
+    if (report.os.name || report.os.version || report.os.hostname) {
+      const { bootTime, ...os } = report.os
+      await tx.operatingSystem.create({
+        data: { deviceId, ...os, uptimeSec: Math.floor(os.uptimeSec), bootTime: dateOrNull(bootTime), collectedAt },
+      })
       await keepRecent(tx, "OperatingSystem", deviceId)
     }
     await tx.cpu.deleteMany({ where: { deviceId } })
@@ -116,7 +119,16 @@ export async function upsertInventory(deviceId: string, raw: unknown): Promise<b
       data: {
         deviceId,
         collectedAt,
-        processes: { create: report.processes.map((row) => ({ pid: Math.floor(row.pid), name: row.name, cpu: row.cpu, ram: row.ram })) },
+        processes: {
+          create: report.processes.map((row) => ({
+            pid: Math.floor(row.pid),
+            name: row.name,
+            userName: row.userName,
+            cpu: row.cpu,
+            ram: row.ram,
+            rssBytes: big(row.rssBytes),
+          })),
+        },
       },
     })
     await tx.processSnapshot.deleteMany({ where: { deviceId, id: { not: snapshot.id } } })
@@ -127,7 +139,14 @@ export async function upsertInventory(deviceId: string, raw: unknown): Promise<b
         update: {},
       })
       await tx.softwareInstallation.create({
-        data: { deviceId, softwareId: software.id, source: item.source, collectedAt },
+        data: {
+          deviceId,
+          softwareId: software.id,
+          source: item.source,
+          installDate: item.installDate,
+          installPath: item.installPath,
+          collectedAt,
+        },
       })
     }
     if (report.software.length) await keepRecent(tx, "SoftwareInstallation", deviceId)
@@ -208,7 +227,13 @@ export async function deviceInventory(deviceId: string) {
     processSnapshotId: processes?.id ?? null,
     software: software
       .filter((row) => !latestSoftwareAt || row.collectedAt.getTime() === latestSoftwareAt)
-      .map((row) => ({ ...row.software, source: row.source, collectedAt: row.collectedAt })),
+      .map((row) => ({
+        ...row.software,
+        source: row.source,
+        installDate: row.installDate,
+        installPath: row.installPath,
+        collectedAt: row.collectedAt,
+      })),
   })
 }
 

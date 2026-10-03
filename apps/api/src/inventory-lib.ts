@@ -11,6 +11,10 @@ export function cleanText(value: unknown, max = 256): string {
   return value.replace(/\u0000/g, "").trim().slice(0, max)
 }
 
+export function redactConfig(value: string): string {
+  return value.replace(/(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+}
+
 function num(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value)
   return Number.isFinite(n) && n >= 0 ? n : 0
@@ -22,8 +26,26 @@ function list(value: unknown, cap: number): Record<string, unknown>[] {
 }
 
 export type InventoryReport = {
-  hardware: { manufacturer: string; model: string; serial: string; chassis: string }
-  os: { name: string; version: string; build: string; arch: string }
+  hardware: { manufacturer: string; model: string; serial: string; chassis: string; biosVendor: string; biosVersion: string }
+  os: {
+    name: string
+    version: string
+    build: string
+    arch: string
+    hostname: string
+    fqdn: string
+    kernel: string
+    bootTime: string
+    timezone: string
+    domain: string
+    gateway: string
+    dnsServers: string
+    agentVersion: string
+    helperVersion: string
+    roles: string
+    primaryIps: string
+    uptimeSec: number
+  }
   cpus: Array<{ name: string; cores: number; threads: number; mhz: number }>
   memory: Array<{ bank: string; sizeBytes: number; speedMhz: number; manufacturer: string; serial: string }>
   disks: Array<{ name: string; model: string; serial: string; sizeBytes: number }>
@@ -33,11 +55,11 @@ export type InventoryReport = {
   monitors: Array<{ name: string; width: number; height: number; primary: boolean }>
   printers: Array<{ name: string; driver: string; port: string }>
   usb: Array<{ name: string; vendorId: string; productId: string }>
-  software: Array<{ name: string; version: string; publisher: string; source: string }>
+  software: Array<{ name: string; version: string; publisher: string; source: string; installDate: string; installPath: string }>
   drivers: Array<{ name: string; version: string; provider: string }>
   certificates: Array<{ subject: string; issuer: string; thumbprint: string; store: string; notAfter: string }>
-  services: Array<{ name: string; displayName: string; state: string; startType: string }>
-  processes: Array<{ pid: number; name: string; cpu: number; ram: number }>
+  services: Array<{ name: string; displayName: string; state: string; startType: string; account: string; binaryPath: string; listenPorts: string; configNote: string }>
+  processes: Array<{ pid: number; name: string; userName: string; cpu: number; ram: number; rssBytes: number }>
   startup: Array<{ name: string; command: string; location: string }>
   browsers: Array<{ name: string; version: string; path: string }>
   users: Array<{ name: string; sid: string; local: boolean; disabled: boolean }>
@@ -55,12 +77,27 @@ export function normalizeInventory(raw: unknown): InventoryReport | null {
       model: cleanText(hardware.model),
       serial: cleanSerial(hardware.serial),
       chassis: cleanText(hardware.chassis),
+      biosVendor: cleanText(hardware.biosVendor),
+      biosVersion: cleanText(hardware.biosVersion),
     },
     os: {
       name: cleanText(os.name),
       version: cleanText(os.version, 128),
       build: cleanText(os.build, 128),
       arch: cleanText(os.arch, 32),
+      hostname: cleanText(os.hostname, 256),
+      fqdn: cleanText(os.fqdn, 256),
+      kernel: cleanText(os.kernel, 128),
+      bootTime: cleanText(os.bootTime, 40),
+      timezone: cleanText(os.timezone, 64),
+      domain: cleanText(os.domain, 256),
+      gateway: cleanText(os.gateway, 64),
+      dnsServers: cleanText(os.dnsServers, 256),
+      agentVersion: cleanText(os.agentVersion, 64),
+      helperVersion: cleanText(os.helperVersion, 64),
+      roles: cleanText(os.roles, 256),
+      primaryIps: cleanText(os.primaryIps, 512),
+      uptimeSec: num(os.uptimeSec),
     },
     cpus: list(body.cpus, 32).map((row) => ({
       name: cleanText(row.name),
@@ -119,6 +156,8 @@ export function normalizeInventory(raw: unknown): InventoryReport | null {
         version: cleanText(row.version, 128),
         publisher: cleanText(row.publisher),
         source: cleanText(row.source, 32),
+        installDate: cleanText(row.installDate, 32),
+        installPath: cleanText(redactConfig(cleanText(row.installPath, 1024)), 1024),
       }))
       .filter((row) => row.name),
     drivers: list(body.drivers, 100).map((row) => ({
@@ -139,14 +178,20 @@ export function normalizeInventory(raw: unknown): InventoryReport | null {
         displayName: cleanText(row.displayName),
         state: cleanText(row.state, 32),
         startType: cleanText(row.startType, 32),
+        account: cleanText(row.account, 128),
+        binaryPath: cleanText(redactConfig(cleanText(row.binaryPath, 1024)), 1024),
+        listenPorts: cleanText(row.listenPorts, 128),
+        configNote: cleanText(redactConfig(cleanText(row.configNote, 512)), 512),
       }))
       .filter((row) => row.name),
-    processes: list(body.processes, 40)
+    processes: list(body.processes, 120)
       .map((row) => ({
         pid: num(row.pid),
         name: cleanText(row.name, 256),
+        userName: cleanText(row.user ?? row.userName, 128),
         cpu: num(row.cpu),
         ram: num(row.ram),
+        rssBytes: num(row.rssBytes),
       }))
       .filter((row) => row.pid > 0),
     startup: list(body.startup, 100).map((row) => ({
