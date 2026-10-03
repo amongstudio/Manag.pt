@@ -1,6 +1,6 @@
 # Documentation
 
-Mnag.pt 3.3.0. These pages describe the code on `cursor/config-console-4753` and the branches it contains. Older notes in this folder (`server.md`, `agent.md`, `helper.md`, `operator.md`) still cover Docker, the original agent transport, and the pre-platform dashboard tour. Configuration in the dashboard overrides the YAML defaults in `config/`.
+Mnag.pt 3.4.0. Remote management: dashboard, agent, inventory, scans, and optional public tunnels. Older notes in this folder (`server.md`, `agent.md`, `helper.md`, `operator.md`) still cover Docker, the original agent transport, and the pre-platform dashboard tour. Configuration in the dashboard overrides the YAML defaults in `config/`.
 
 ## Users
 

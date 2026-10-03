@@ -34,7 +34,7 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
-const Version = "3.3.0"
+const Version = "3.4.0"
 
 type Class int
 

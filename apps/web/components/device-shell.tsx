@@ -55,7 +55,7 @@ function envelopeDeviceId(raw: unknown): string | undefined {
 function shellReasonLabel(code: string): string {
   switch (code) {
     case SHELL_REASON.unsupported:
-      return "Windows-only in 3.3.0"
+      return "Windows-only"
     case SHELL_REASON.noInteractiveSession:
       return "No interactive session"
     case SHELL_REASON.exit:

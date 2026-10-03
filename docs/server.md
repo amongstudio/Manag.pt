@@ -1,6 +1,6 @@
 # Server deploy
 
-Mnag.pt **3.3.0** by Masria Code. Contact: [Contact@Mnag.pt.com](mailto:Contact@Mnag.pt.com) · [https://Mnag.pt](https://Mnag.pt). Apply Prisma migrations through `0015_device_credentials` when upgrading (`0014_operator_sessions`, then `0015_device_credentials`).
+Mnag.pt **3.4.0** by Masria Code. Contact: [Contact@Mnag.pt.com](mailto:Contact@Mnag.pt.com) · [https://Mnag.pt](https://Mnag.pt). Apply Prisma migrations through `0015_device_credentials` when upgrading (`0014_operator_sessions`, then `0015_device_credentials`).
 
 From the repo root:
 

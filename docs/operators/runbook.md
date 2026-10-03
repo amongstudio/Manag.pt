@@ -36,9 +36,9 @@ Keep lab mode on until authorized networks list only ranges you own. Edit that l
 ## Rollback
 
 ```bash
-git tag v3.3.0 <sha>
-git push origin v3.3.0
-git checkout v3.3.0
+git tag v3.4.0 <sha>
+git push origin v3.4.0
+git checkout v3.4.0
 ```
 
 Push the tag only when you mean to publish it. Migrations 0017–0019 are additive. Restoring an older binary leaves the new tables in place. Restoring `data/pcmanager.db` from `data/backups/` is the data rollback, and only while the API is stopped.

@@ -42,7 +42,7 @@ import (
 	"github.com/pc-manager/agent/internal/wsprotocol"
 )
 
-var Version = "3.3.0"
+var Version = "3.4.0"
 
 func init() {
 	inventory.AgentVersion = Version
