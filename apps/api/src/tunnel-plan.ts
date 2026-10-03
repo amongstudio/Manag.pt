@@ -454,10 +454,8 @@ function cloudflaredNamed(token: string): ProcessSpec {
   }
 }
 
-function zrokSpec(port: number, role: TunnelRole, subdomain: string): ProcessSpec {
-  const args = ["share", "public"]
-  if (subdomain) args.push("--unique-name", subdomain)
-  args.push(upstream(port))
+function zrokSpec(port: number, role: TunnelRole): ProcessSpec {
+  const args = ["share", "public", "--headless", upstream(port)]
   return {
     kind: "process",
     bin: "zrok",
@@ -514,6 +512,7 @@ export function buildTunnelPlan(config: StoredTunnel): TunnelPlan {
   if (!validPort(config.webPort) || !validPort(config.apiPort)) return { ok: false, error: "invalid_port" }
   if (config.exposeApi && config.webPort === config.apiPort) return { ok: false, error: "ports_must_differ" }
   if (!validateSubdomain(config.subdomain)) return { ok: false, error: "invalid_subdomain" }
+  if (config.provider === "zrok" && config.subdomain) return { ok: false, error: "zrok_subdomain_unsupported" }
   if (!validateLocaltunnelHost(config.localtunnelHost)) return { ok: false, error: "invalid_host" }
   const roles: TunnelRole[] = config.exposeApi ? ["dashboard", "api"] : ["dashboard"]
   const portFor = (role: TunnelRole) => (role === "dashboard" ? config.webPort : config.apiPort)
@@ -538,7 +537,7 @@ export function buildTunnelPlan(config: StoredTunnel): TunnelPlan {
         specs.push(localtunnelSpec(port, role, config.localtunnelHost, config.subdomain))
         break
       case "zrok":
-        specs.push(zrokSpec(port, role, config.subdomain))
+        specs.push(zrokSpec(port, role))
         break
       case "pinggy":
         specs.push(pinggySpec(port, role, config.secrets.pinggyToken))
@@ -549,7 +548,7 @@ export function buildTunnelPlan(config: StoredTunnel): TunnelPlan {
   }
   const note =
     config.provider === "zrok"
-      ? "zrok share uses the account from a previous zrok enable. This API stores the token and does not run zrok enable, so the token is not written to process logs."
+      ? "Pinned zrok 2 runs share public --headless against 127.0.0.1. It has no --unique-name flag, so leave subdomain blank. Enable the account yourself; this API does not run zrok enable and does not put the token on the command line."
       : config.provider === "localtunnel"
         ? "The dashboard proxies /api to the API. Tunneling the web port is enough when that proxy accepts the tunnel Host header. The API port tunnel is optional."
         : "The dashboard proxies /api to the API. Tunneling the web port is enough when that proxy accepts the tunnel Host header. The API port tunnel is optional."

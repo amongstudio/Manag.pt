@@ -204,13 +204,15 @@ test("argument builders bind 127.0.0.1 and keep secrets out of redacted commands
   if (!q || q.kind !== "process") return
   assert.deepEqual(q.args, ["tunnel", "--url", "http://127.0.0.1:3000", "--no-autoupdate"])
 
-  const zrok = buildTunnelPlan({ ...DEFAULT_TUNNEL, provider: "zrok", subdomain: "lab1" })
+  const zrokNamed = buildTunnelPlan({ ...DEFAULT_TUNNEL, provider: "zrok", subdomain: "lab1" })
+  assert.equal(zrokNamed.ok, false)
+  const zrok = buildTunnelPlan({ ...DEFAULT_TUNNEL, provider: "zrok" })
   assert.equal(zrok.ok, true)
   if (!zrok.ok) return
   const z = zrok.specs[0]
   assert.ok(z && z.kind === "process")
   if (!z || z.kind !== "process") return
-  assert.deepEqual(z.args, ["share", "public", "--unique-name", "lab1", "http://127.0.0.1:3000"])
+  assert.deepEqual(z.args, ["share", "public", "--headless", "http://127.0.0.1:3000"])
   assert.equal(z.args.some((arg) => arg.includes(ZROK_TOKEN)), false)
 
   const lt = buildTunnelPlan({ ...DEFAULT_TUNNEL, provider: "localtunnel", subdomain: "lab1" })
@@ -353,6 +355,52 @@ test("missing binaries do not spawn and return the install command", async () =>
   assert.equal(started.install, INSTALL_COMMANDS.cloudflare)
   assert.equal(h.spawned.length, 0)
   assert.equal(h.opened.length, 0)
+})
+
+test("start installs a missing client and resume does not download", async () => {
+  const h = harness({ bins: { ngrok: null }, stdout: NGROK_LOG })
+  let installs = 0
+  let ngrok: string | null = null
+  h.deps.installProvider = async (provider) => {
+    installs += 1
+    assert.equal(provider, "ngrok")
+    ngrok = "/data/tools/ngrok"
+    return { ok: true, bin: ngrok }
+  }
+  h.deps.which = async (bin) => (bin === "ngrok" ? ngrok : `/usr/bin/${bin}`)
+  const sup = new TunnelSupervisor(h.deps, memoryTunnelStore())
+  const started = await sup.start({ provider: "ngrok" })
+  assert.equal(started.ok, true)
+  assert.equal(installs, 1)
+  assert.equal(h.spawned[0]?.command, "/data/tools/ngrok")
+  assert.equal(h.spawned[0]?.opts.shell, false)
+  assert.equal(h.spawned[0]?.args.some((arg) => arg.includes("127.0.0.1")), true)
+  await sup.stop()
+
+  const resume = harness({ bins: { ngrok: null } })
+  let resumeInstalls = 0
+  resume.deps.installProvider = async () => {
+    resumeInstalls += 1
+    return { ok: false, error: "should_not_run" }
+  }
+  const resumeSup = new TunnelSupervisor(
+    resume.deps,
+    memoryTunnelStore({ ...DEFAULT_TUNNEL, enabled: true, provider: "ngrok" })
+  )
+  await resumeSup.resumeIfEnabled()
+  assert.equal(resumeInstalls, 0)
+  assert.equal(resume.spawned.length, 0)
+})
+
+test("a failed checksum install does not spawn", async () => {
+  const h = harness({ bins: { cloudflared: null } })
+  h.deps.installProvider = async () => ({ ok: false, error: "checksum_mismatch" })
+  const sup = new TunnelSupervisor(h.deps, memoryTunnelStore())
+  const started = await sup.start({ provider: "cloudflare" })
+  assert.equal(started.ok, false)
+  if (started.ok) return
+  assert.equal(started.error, "checksum_mismatch")
+  assert.equal(h.spawned.length, 0)
 })
 
 test("localtunnel stop closes the handle and does not kill a pid", async () => {

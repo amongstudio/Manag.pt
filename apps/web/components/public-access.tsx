@@ -121,7 +121,15 @@ export function PublicAccess({ initial }: { initial?: TunnelView | null }) {
     hydrated.current = true
   }, [tunnel])
 
-  const body = payload({ provider, exposeApi, subdomain, localtunnelHost: host, webPort, apiPort, token })
+  const body = payload({
+    provider,
+    exposeApi,
+    subdomain: provider === "zrok" ? "" : subdomain,
+    localtunnelHost: host,
+    webPort,
+    apiPort,
+    token,
+  })
   const save = useMutation({
     mutationFn: () => api<{ tunnel: TunnelView }>("/api/v1/admin/tunnels", { method: "PUT", body: JSON.stringify(body) }),
     onSuccess: () => {
@@ -142,6 +150,18 @@ export function PublicAccess({ initial }: { initial?: TunnelView | null }) {
       toast.error(error.message)
       void client.invalidateQueries({ queryKey: ["tunnel"] })
     },
+  })
+  const installClient = useMutation({
+    mutationFn: () =>
+      api<{ tunnel: TunnelView }>("/api/v1/admin/tunnels/install", {
+        method: "POST",
+        body: JSON.stringify({ provider }),
+      }),
+    onSuccess: () => {
+      toast.success("Client installed")
+      void client.invalidateQueries({ queryKey: ["tunnel"] })
+    },
+    onError: (error: Error) => toast.error(error.message),
   })
   const stop = useMutation({
     mutationFn: () => api<{ tunnel: TunnelView }>("/api/v1/admin/tunnels/stop", { method: "POST" }),
@@ -189,7 +209,7 @@ export function PublicAccess({ initial }: { initial?: TunnelView | null }) {
             <Link href="/docs/users/public-access" className="underline">
               Public access
             </Link>
-            . This API does not download tunnel binaries.
+            . Start installs ngrok, cloudflared, or zrok into the API data directory when that binary is missing. LocalTunnel stays the API package. Pinggy uses the system ssh client.
           </p>
           <label className="text-sm">
             Provider
@@ -233,17 +253,17 @@ export function PublicAccess({ initial }: { initial?: TunnelView | null }) {
               />
             </label>
           ) : null}
-          {provider === "zrok" ? (
-            <p className="text-xs text-muted-foreground">
-              Run <span className="font-mono">zrok enable</span> in a shell before Start. This API stores the token and does not run enable, so the token is not written to process logs.
-            </p>
-          ) : null}
           {provider === "cloudflare" ? (
             <p className="text-xs text-muted-foreground">
               Leave the token blank for a trycloudflare.com quick tunnel. A named token runs <span className="font-mono">cloudflared tunnel run --token</span>. The hostname then comes from Cloudflare, and the API-port toggle does not open a second process.
             </p>
           ) : null}
-          {provider === "localtunnel" || provider === "zrok" ? (
+          {provider === "zrok" ? (
+            <p className="text-xs text-muted-foreground">
+              The pinned zrok 2 client has no reserved-name flag. Leave subdomain blank. Enable the zrok account in a shell before Start; this page does not run zrok enable.
+            </p>
+          ) : null}
+          {provider === "localtunnel" ? (
             <label className="text-sm">
               Subdomain
               <Input className="mt-1" value={subdomain} placeholder="optional, lowercase" onChange={(event) => setSubdomain(event.target.value)} />
@@ -272,14 +292,29 @@ export function PublicAccess({ initial }: { initial?: TunnelView | null }) {
           <p className="text-xs text-muted-foreground">Upstream is always 127.0.0.1. Blank token fields keep the saved secret. Saved secrets are not returned by the API.</p>
           {tunnel && available === false ? (
             <div className="rounded-md border border-dashed p-3">
-              <p className="text-sm">This provider is not available on the API host. Install it, then start the tunnel. The API will not download it for you.</p>
+              <p className="text-sm">
+                {provider === "ngrok" || provider === "cloudflare" || provider === "zrok"
+                  ? "This client is not on the API host yet. Install downloads the pinned official build into data/tools and checks its sha256 before it can run. The manual command is a fallback."
+                  : provider === "pinggy"
+                    ? "Pinggy needs the system ssh client. This API does not download ssh."
+                    : "LocalTunnel is the localtunnel package already used by the API."}
+              </p>
               <pre className="mt-2 overflow-auto rounded-md bg-muted p-3 text-xs">{install}</pre>
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" disabled={available === false || start.isPending} onClick={() => start.mutate()}>
+            <Button
+              type="button"
+              disabled={start.isPending || (available === false && provider !== "ngrok" && provider !== "cloudflare" && provider !== "zrok")}
+              onClick={() => start.mutate()}
+            >
               Start
             </Button>
+            {provider === "ngrok" || provider === "cloudflare" || provider === "zrok" ? (
+              <Button type="button" variant="outline" disabled={installClient.isPending || available === true} onClick={() => installClient.mutate()}>
+                Install
+              </Button>
+            ) : null}
             <Button type="button" variant="outline" disabled={tunnel?.status === "stopped" || stop.isPending} onClick={() => stop.mutate()}>
               Stop
             </Button>

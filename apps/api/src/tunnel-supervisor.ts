@@ -5,7 +5,8 @@
  */
 
 import { execFile, spawn } from "node:child_process"
-import { mkdtemp, unlink, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import { access, mkdtemp, unlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
@@ -33,6 +34,8 @@ import {
   type TunnelRole,
   type TunnelSpec,
 } from "./tunnel-plan.js"
+import { dataPath } from "./env.js"
+import { installTunnelTool, type InstallableTunnelTool } from "./tunnel-tools.js"
 
 export interface TunnelChild {
   pid?: number
@@ -63,6 +66,10 @@ export type TunnelStore = {
   save: (value: StoredTunnel) => Promise<void>
 }
 
+const AUTO_INSTALL = new Set<TunnelProvider>(["ngrok", "cloudflare", "zrok"])
+
+export type ToolInstallResult = { ok: true; bin: string } | { ok: false; error: string }
+
 export type TunnelDeps = {
   spawn: (command: string, args: string[], opts: SpawnOpts) => TunnelChild
   which: (bin: string) => Promise<string | null>
@@ -77,6 +84,8 @@ export type TunnelDeps = {
   pollNgrokApi: boolean
   log: (line: string) => void
   now: () => string
+  /** Operator Start and the install route set this. Boot resume does not call it. */
+  installProvider?: (provider: InstallableTunnelTool) => Promise<ToolInstallResult>
 }
 
 type Running = {
@@ -103,8 +112,18 @@ export function memoryTunnelStore(initial?: StoredTunnel): TunnelStore & { snaps
   }
 }
 
-export async function whichBin(bin: string): Promise<string | null> {
+export async function whichBin(bin: string, toolsDir?: string): Promise<string | null> {
   if (!/^[a-z0-9._-]+$/i.test(bin)) return null
+  if (toolsDir) {
+    const name = process.platform === "win32" ? `${bin}.exe` : bin
+    const local = path.join(toolsDir, name)
+    try {
+      await access(local, constants.X_OK)
+      return local
+    } catch {
+      /* fall through to PATH */
+    }
+  }
   return new Promise((resolve) => {
     execFile("which", [bin], { timeout: 2000, shell: false }, (err, stdout) => {
       if (err) resolve(null)
@@ -135,7 +154,12 @@ export function defaultTunnelDeps(): TunnelDeps {
     spawn(command, args, opts) {
       return spawn(command, args, opts) as unknown as TunnelChild
     },
-    which: whichBin,
+    which: (bin) => whichBin(bin, dataPath("tools")),
+    async installProvider(provider) {
+      const installed = await installTunnelTool(provider)
+      if (!installed.ok) return installed
+      return { ok: true, bin: installed.bin }
+    },
     openLocaltunnel: openLocaltunnelPackage,
     localtunnelAvailable: localtunnelPackageAvailable,
     killPid(pid, signal) {
@@ -219,7 +243,7 @@ export class TunnelSupervisor {
     | { ok: true; tunnel: TunnelPublic }
     | { ok: false; error: string; http: number; install?: string; provider?: TunnelProvider }
   > {
-    return this.enqueue(() => this.startUnlocked(body))
+    return this.enqueue(() => this.startUnlocked(body, true))
   }
 
   async stop(): Promise<{ ok: true; tunnel: TunnelPublic }> {
@@ -250,11 +274,23 @@ export class TunnelSupervisor {
     return this.enqueue(async () => {
       const stored = await this.current()
       if (!stored.enabled) return
-      await this.startUnlocked(undefined)
+      await this.startUnlocked(undefined, false)
     })
   }
 
-  private async startUnlocked(body: unknown): Promise<
+  /** Install one pinned client without opening a tunnel. */
+  async install(provider: TunnelProvider): Promise<{ ok: true; tunnel: TunnelPublic } | { ok: false; error: string; http: number }> {
+    return this.enqueue(async () => {
+      if (!AUTO_INSTALL.has(provider) || !this.deps.installProvider) {
+        return { ok: false, error: "install_not_supported", http: 400 }
+      }
+      const installed = await this.deps.installProvider(provider as InstallableTunnelTool)
+      if (!installed.ok) return { ok: false, error: installed.error, http: 409 }
+      return { ok: true, tunnel: await this.publicView() }
+    })
+  }
+
+  private async startUnlocked(body: unknown, allowInstall: boolean): Promise<
     | { ok: true; tunnel: TunnelPublic }
     | { ok: false; error: string; http: number; install?: string; provider?: TunnelProvider }
   > {
@@ -265,7 +301,22 @@ export class TunnelSupervisor {
     if (!merged.ok) return { ok: false, error: merged.error, http: 400 }
     const plan = buildTunnelPlan(merged.value)
     if (!plan.ok) return { ok: false, error: plan.error, http: 400 }
-    const missing = await this.firstMissing(plan.specs)
+    let missing = await this.firstMissing(plan.specs)
+    if (missing && allowInstall && AUTO_INSTALL.has(missing) && this.deps.installProvider) {
+      const installed = await this.deps.installProvider(missing as InstallableTunnelTool)
+      if (!installed.ok) {
+        await this.persist({
+          ...merged.value,
+          enabled: false,
+          status: "error",
+          lastError: installed.error.slice(0, 500),
+          publicUrl: "",
+          apiPublicUrl: "",
+        })
+        return { ok: false, error: installed.error, http: 409, provider: missing }
+      }
+      missing = await this.firstMissing(plan.specs)
+    }
     if (missing) {
       const install = INSTALL_COMMANDS[missing]
       await this.persist({

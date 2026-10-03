@@ -27,6 +27,21 @@ export async function registerTunnelRoutes(app: FastifyInstance): Promise<void> 
     return { tunnel: saved.tunnel }
   })
 
+  app.post(`${API_PREFIX}/admin/tunnels/install`, async (req, reply) => {
+    const provider = (req.body as { provider?: string } | null)?.provider
+    if (provider !== "ngrok" && provider !== "cloudflare" && provider !== "zrok") {
+      return reply.code(400).send(errorBody("install_not_supported"))
+    }
+    const installed = await getTunnelSupervisor().install(provider)
+    if (!installed.ok) return reply.code(installed.http).send(errorBody(installed.error))
+    await appendAudit({
+      actor: await actorOf(req.headers as Record<string, unknown>),
+      action: "tunnel_install",
+      detail: { provider },
+    })
+    return { tunnel: installed.tunnel, installed: provider }
+  })
+
   app.post(`${API_PREFIX}/admin/tunnels/start`, async (req, reply) => {
     const started = await getTunnelSupervisor().start(req.body ?? {})
     if (!started.ok) {

@@ -1,6 +1,6 @@
 # Public access
 
-Configuration → **Public access** can publish this dashboard on the internet through a reverse tunnel. The API binds the tunnel at `127.0.0.1` only. It does not download ngrok, cloudflared, zrok, or ssh for you. If the binary (or, for LocalTunnel, the `localtunnel` package) is missing, Start returns `provider_unavailable` and the page shows one install command.
+Configuration → **Public access** can publish this dashboard on the internet through a reverse tunnel. The API binds the tunnel at `127.0.0.1` only. When you press **Start** or **Install** for Ngrok, Cloudflare Tunnel, or zrok and that binary is missing, the API downloads the pinned official client into `data/tools/` (not `/usr/bin`). It checks the sha256 committed next to the version pin and deletes the file if the hash does not match. Nothing is downloaded on API boot. LocalTunnel stays the `localtunnel` package. Pinggy uses the system `ssh` client and is not downloaded. The manual commands below are a fallback if you would rather install the client yourself.
 
 The operator token is still required on the dashboard and on `/api/v1/admin/*`. A tunnel is not a backdoor. It does not change scan authorization, the allowlist, or lab mode.
 
@@ -17,20 +17,20 @@ Tokens are write-only. The API never returns them. A blank password field keeps 
 
 ## Ngrok
 
-Install ngrok and put it on the API host `PATH`.
+Press **Install** or **Start**. The API downloads ngrok **3.39.11** (linux amd64 on this host; linux arm64 and windows amd64 are pinned too) from `https://bin.ngrok.com` into `data/tools/ngrok` after the sha256 matches. A manual install onto `PATH` still works:
 
 ```bash
-curl -fsSL https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz | tar -xz -C "$HOME/.local/bin"
+curl -fsSL https://bin.ngrok.com/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz | tar -xz -C "$HOME/.local/bin"
 ```
 
 Paste the authtoken in the password field. The API passes it as `NGROK_AUTHTOKEN` and writes a mode `0600` config file. The token is not placed on the command line and is not written to the API log. The process is `ngrok http http://127.0.0.1:3000 --log=stdout`. The public URL is read from that log or from the ngrok agent API on `127.0.0.1:44040` (and `44041` for the API port).
 
 ## Cloudflare Tunnel
 
-Install `cloudflared`.
+Press **Install** or **Start**. The API downloads cloudflared **2026.9.3** from the GitHub release into `data/tools/cloudflared` after the sha256 matches. Manual fallback:
 
 ```bash
-curl -fsSL -o "$HOME/.local/bin/cloudflared" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x "$HOME/.local/bin/cloudflared"
+curl -fsSL -o "$HOME/.local/bin/cloudflared" https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/cloudflared-linux-amd64 && chmod +x "$HOME/.local/bin/cloudflared"
 ```
 
 Leave the token blank for a quick tunnel:
@@ -55,24 +55,29 @@ Subdomain is optional. The default host is `https://localtunnel.me`. You can poi
 
 ## zrok
 
-Install zrok, then enable it in a shell with your account token. Do that yourself. This API does not run `zrok enable`, so the token is stored for your records and is not passed to a process.
+Press **Install** or **Start**. The API downloads zrok **2.0.7** from the openziti GitHub release, checks the sha256 of the archive, and saves the `zrok2` binary as `data/tools/zrok`. Enable the account yourself. This API does not run `zrok enable`, so the token is stored for your records and is not passed to a process.
+
+Manual fallback:
 
 ```bash
-curl -sSLf https://get.openziti.io/install.bash | sudo bash -s zrok
+curl -fsSL -o /tmp/zrok.tgz https://github.com/openziti/zrok/releases/download/v2.0.7/zrok_2.0.7_linux_amd64.tar.gz
+tar -xzf /tmp/zrok.tgz -C "$HOME/.local/bin" zrok2
+mv "$HOME/.local/bin/zrok2" "$HOME/.local/bin/zrok"
+chmod +x "$HOME/.local/bin/zrok"
 zrok enable
 ```
 
-Start then runs:
+Start then runs the pinned client headless. zrok 2 has no `--unique-name` flag, so leave subdomain blank:
 
 ```bash
-zrok share public http://127.0.0.1:3000
+zrok share public --headless http://127.0.0.1:3000
 ```
 
-An optional subdomain is sent as `--unique-name`. If `zrok` is not on `PATH`, Start returns the install command and does not spawn anything.
+If `ssh` is missing for Pinggy, Start still returns `provider_unavailable` and does not download a client.
 
 ## Pinggy
 
-Pinggy uses the OpenSSH client.
+Pinggy uses the OpenSSH client already on the host. The API does not download ssh.
 
 ```bash
 sudo apt-get install -y openssh-client
