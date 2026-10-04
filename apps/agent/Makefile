@@ -1,5 +1,5 @@
 APP=pc-manager-agent
-VERSION?=3.3.0
+VERSION?=3.4.0
 DEFAULT_SERVER_URL?=http://localhost:4000
 LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION) -X github.com/pc-manager/agent/internal/config.DefaultServerURL=$(DEFAULT_SERVER_URL)"
 WIN_LDFLAGS=-ldflags "-s -w -H windowsgui -X main.Version=$(VERSION) -X github.com/pc-manager/agent/internal/config.DefaultServerURL=$(DEFAULT_SERVER_URL)"

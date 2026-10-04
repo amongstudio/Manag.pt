@@ -8,7 +8,7 @@
     "#1": {
       "0409": {
         "identity": {},
-        "description": "Mnag.pt Agent",
+        "description": "Mnag.pt remote management agent",
         "minimum-os": "win7",
         "execution-level": "as invoker",
         "dpi-awareness": "per monitor v2"
@@ -19,20 +19,20 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "3.3.0.0",
-          "product_version": "3.3.0.0"
+          "file_version": "3.4.0.0",
+          "product_version": "3.4.0.0"
         },
         "info": {
           "0409": {
             "Comments": "https://Mnag.pt",
             "CompanyName": "Masria Code",
-            "FileDescription": "Mnag.pt fleet agent for heartbeat, commands, and self-update",
-            "FileVersion": "3.3.0",
+            "FileDescription": "Remote management agent: inventory, scans, and commands",
+            "FileVersion": "3.4.0",
             "InternalName": "pc-manager-agent",
             "LegalCopyright": "© Masria Code",
             "OriginalFilename": "pc-manager-agent.exe",
             "ProductName": "Mnag.pt Agent",
-            "ProductVersion": "3.3.0"
+            "ProductVersion": "3.4.0"
           }
         }
       }

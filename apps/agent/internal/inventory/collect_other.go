@@ -10,17 +10,59 @@ import (
 )
 
 func collectPlatform(rep *Report) {
-	if text, err := runText(8*time.Second, "dpkg-query", "-W", "-f", "${Package}\t${Version}\n"); err == nil {
-		for _, line := range strings.Split(text, "\n") {
-			if len(rep.Software) >= 400 {
-				break
-			}
-			parts := strings.Split(line, "\t")
-			if len(parts) < 2 || strings.TrimSpace(parts[0]) == "" {
-				continue
-			}
-			rep.Software = append(rep.Software, Software{Name: clip(parts[0], 256), Version: clip(parts[1], 128), Source: "dpkg"})
+	if raw, err := os.ReadFile("/etc/os-release"); err == nil {
+		name, version := ParseOsRelease(string(raw))
+		if name != "" {
+			rep.OS.Name = name
 		}
+		if version != "" {
+			rep.OS.Version = version
+		}
+	}
+	if raw, err := os.ReadFile("/sys/class/dmi/id/sys_vendor"); err == nil {
+		rep.Hardware.Manufacturer = clip(string(raw), 128)
+	}
+	if raw, err := os.ReadFile("/sys/class/dmi/id/product_name"); err == nil {
+		rep.Hardware.Model = clip(string(raw), 128)
+	}
+	if raw, err := os.ReadFile("/sys/class/dmi/id/product_serial"); err == nil {
+		rep.Hardware.Serial = CleanSerial(string(raw))
+	}
+	if raw, err := os.ReadFile("/sys/class/dmi/id/chassis_type"); err == nil {
+		rep.Hardware.Chassis = clip(string(raw), 32)
+	}
+	if raw, err := os.ReadFile("/sys/class/dmi/id/bios_vendor"); err == nil {
+		rep.Hardware.BiosVendor = clip(string(raw), 128)
+	}
+	if raw, err := os.ReadFile("/sys/class/dmi/id/bios_version"); err == nil {
+		rep.Hardware.BiosVersion = clip(string(raw), 128)
+	}
+	if text, err := runText(4*time.Second, "hostname", "-f"); err == nil {
+		if fqdn := clip(text, 256); fqdn != "" {
+			rep.OS.FQDN = fqdn
+		}
+	}
+	if raw, err := os.ReadFile("/etc/resolv.conf"); err == nil {
+		domain, dns := ParseResolv(string(raw))
+		rep.OS.Domain = domain
+		rep.OS.DNSServers = strings.Join(dns, ",")
+	}
+	if raw, err := os.ReadFile("/proc/net/route"); err == nil {
+		rep.OS.Gateway = ParseRoute(string(raw))
+	}
+	if text, err := runText(4*time.Second, "dmidecode", "-t", "memory"); err == nil {
+		rep.Memory = append(rep.Memory, ParseDMIMemory(text)...)
+	}
+	if text, err := runText(4*time.Second, "lsblk", "-J", "-b", "-o", "NAME,TYPE,SIZE,MODEL,SERIAL"); err == nil {
+		if disks := ParseLsblk(text); len(disks) > 0 {
+			rep.Disks = disks
+		}
+	}
+	if text, err := runText(8*time.Second, "dpkg-query", "-W", "-f", "${Package}\t${Version}\t${Maintainer}\n"); err == nil {
+		rep.Software = append(rep.Software, ParseDpkg(text)...)
+	}
+	if text, err := runText(8*time.Second, "brew", "list", "--versions"); err == nil {
+		rep.Software = append(rep.Software, ParseBrew(text)...)
 	}
 	if text, err := runText(3*time.Second, "lpstat", "-p"); err == nil {
 		for _, line := range strings.Split(text, "\n") {
@@ -56,18 +98,31 @@ func collectPlatform(rep *Report) {
 			rep.Browsers = append(rep.Browsers, Browser{Name: candidate.name, Path: candidate.path})
 		}
 	}
-	if text, err := runText(5*time.Second, "systemctl", "list-units", "--type=service", "--plain", "--no-legend", "--no-pager"); err == nil {
-		for _, line := range strings.Split(text, "\n") {
-			if len(rep.Services) >= 300 {
-				break
-			}
-			fields := strings.Fields(line)
-			if len(fields) < 4 {
+	if text, err := runText(8*time.Second, "systemctl", "show", "--type=service", "--no-pager", "-p", "Id", "-p", "Description", "-p", "ActiveState", "-p", "UnitFileState", "-p", "User", "-p", "FragmentPath", "-p", "DropInPaths", "-p", "ExecStart"); err == nil {
+		rep.Services = ParseSystemdShow(text)
+	}
+	if text, err := runText(4*time.Second, "ss", "-lntp"); err == nil {
+		listens := ParseListen(text)
+		AttachListenPorts(rep.Services, listens)
+		ports := []string{}
+		for _, values := range listens {
+			ports = append(ports, values...)
+		}
+		rep.OS.Roles = RolesFromPorts(strings.Join(ports, ","))
+	}
+	ips := []string{}
+	for _, adapter := range rep.Adapters {
+		for _, ip := range adapter.IPs {
+			if strings.HasPrefix(ip, "127.") || strings.HasPrefix(ip, "::1") || ip == "" {
 				continue
 			}
-			rep.Services = append(rep.Services, Service{Name: strings.TrimSuffix(fields[0], ".service"), State: fields[3]})
+			ips = append(ips, ip)
+			if len(ips) >= 8 {
+				break
+			}
 		}
 	}
+	rep.OS.PrimaryIPs = strings.Join(ips, ",")
 }
 
 func collectPasswd(rep *Report) {

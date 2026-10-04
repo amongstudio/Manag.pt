@@ -19,7 +19,7 @@ import (
 	"github.com/pc-manager/helper/internal/watchdog"
 )
 
-var Version = "3.3.0"
+var Version = "3.4.0"
 
 type program struct {
 	cfg    config.Config

@@ -17,21 +17,24 @@ const HKDF_SALT = "pcmanager-vault-v1"
 const HKDF_INFO = "credential-vault"
 const PREFIX = "v1:"
 
-function vaultKey(): Buffer {
-  const ikm = env.credentialsKey || env.updateSigningSecret
+function deriveVaultKey(ikm: string): Buffer {
   return Buffer.from(hkdfSync("sha256", ikm, HKDF_SALT, HKDF_INFO, 32))
 }
 
-export function encryptVaultSecret(plain: string): string {
+function vaultKey(): Buffer {
+  return deriveVaultKey(env.credentialsKey || env.updateSigningSecret)
+}
+
+export function encryptVaultSecretWith(ikm: string, plain: string): string {
   if (!plain) return ""
   const iv = randomBytes(12)
-  const cipher = createCipheriv("aes-256-gcm", vaultKey(), iv)
+  const cipher = createCipheriv("aes-256-gcm", deriveVaultKey(ikm), iv)
   const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()])
   const tag = cipher.getAuthTag()
   return PREFIX + Buffer.concat([iv, tag, ct]).toString("base64")
 }
 
-export function decryptVaultSecret(enc: string): string {
+export function decryptVaultSecretWith(ikm: string, enc: string): string {
   const raw = enc.trim()
   if (!raw) return ""
   if (!raw.startsWith(PREFIX)) throw new Error("unsupported_vault_version")
@@ -40,9 +43,17 @@ export function decryptVaultSecret(enc: string): string {
   const iv = buf.subarray(0, 12)
   const tag = buf.subarray(12, 28)
   const ct = buf.subarray(28)
-  const decipher = createDecipheriv("aes-256-gcm", vaultKey(), iv)
+  const decipher = createDecipheriv("aes-256-gcm", deriveVaultKey(ikm), iv)
   decipher.setAuthTag(tag)
   return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8")
+}
+
+export function encryptVaultSecret(plain: string): string {
+  return encryptVaultSecretWith(env.credentialsKey || env.updateSigningSecret, plain)
+}
+
+export function decryptVaultSecret(enc: string): string {
+  return decryptVaultSecretWith(env.credentialsKey || env.updateSigningSecret, enc)
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -68,9 +79,15 @@ export type VaultRowInput = {
   secret?: string
 }
 
+export function usableVaultSecret(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  const text = value.trim()
+  if (!text || text === "[redacted]" || /^[•*]+$/.test(text)) return undefined
+  return text
+}
+
 function usableSecret(value: unknown): string | undefined {
-  if (typeof value !== "string" || !value || value === "[redacted]") return undefined
-  return value
+  return usableVaultSecret(value)
 }
 
 export async function upsertVaultEntry(deviceId: string, input: VaultRowInput): Promise<{ id: string; credKey: string }> {

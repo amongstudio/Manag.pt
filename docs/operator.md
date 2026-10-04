@@ -1,6 +1,6 @@
 # Operator guide
 
-Mnag.pt **3.3.0** by Masria Code. Contact: [Contact@Mnag.pt.com](mailto:Contact@Mnag.pt.com) · [https://Mnag.pt](https://Mnag.pt). Heartbeats are presence-only (`lastSeen` / online). The API ignores `cpu` / `ram` / `disk` on heartbeat and does not write `Stat` rows.
+Mnag.pt **3.4.0** by Masria Code. Contact: [Contact@Mnag.pt.com](mailto:Contact@Mnag.pt.com) · [https://Mnag.pt](https://Mnag.pt). Heartbeats are presence-only (`lastSeen` / online). The API ignores `cpu` / `ram` / `disk` on heartbeat and does not write `Stat` rows.
 
 Optional dashboard login lives in SQLite (Settings → Security, or `/login` after a password exists). Until then, treat the UI as an operator console on a private network, VPN, or IP allowlist. **Production still needs `OPERATOR_TOKEN`** (and `TURN_URL` for WAN desktop). Mesh stays off until you opt in.
 
@@ -27,7 +27,7 @@ If H.264 cannot start, the HUD shows **Fell back to JPEG (`reason`)** with the a
 
 ## Shell
 
-The **Shell** section is Windows-only in 3.3.0 (other platforms show that message). Confirm before open. Choose PowerShell or cmd. The dashboard uses xterm.js plus the fit addon and talks Socket.io `shell_open` / `shell_data` / `shell_resize` / `shell_close` — the same strings as agent-ws (`AGENT_WS_TYPE.shell_*`). UTF-8 stdin/stdout; optional binary PTY frames use agent-ws type `4`. One session per device. The agent ConPTY path may run as the logged-on user when the agent is a service.
+The **Shell** section is Windows-only in 3.4.0 (other platforms show that message). Confirm before open. Choose PowerShell or cmd. The dashboard uses xterm.js plus the fit addon and talks Socket.io `shell_open` / `shell_data` / `shell_resize` / `shell_close` — the same strings as agent-ws (`AGENT_WS_TYPE.shell_*`). UTF-8 stdin/stdout; optional binary PTY frames use agent-ws type `4`. One session per device. The agent ConPTY path may run as the logged-on user when the agent is a service.
 
 ## Files
 

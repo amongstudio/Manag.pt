@@ -1,6 +1,6 @@
 # Mnag.pt
 
-Greenfield rewrite: Next.js dashboard, Fastify API, SQLite, Go agent + helper. **Version 3.3.0.**
+Remote management: dashboard, agent, inventory, scans, and optional public tunnels. **Version 3.4.0.**
 
 **Masria Code** · [Contact@Mnag.pt.com](mailto:Contact@Mnag.pt.com) · [https://Mnag.pt](https://Mnag.pt)
 

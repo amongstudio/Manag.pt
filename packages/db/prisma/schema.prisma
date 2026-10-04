@@ -68,8 +68,9 @@ model Device {
 
 model DeviceCredential {
   id          String   @id @default(cuid())
-  deviceId    String
-  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId    String?
+  device      Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  scope       String   @default("device")
   credKey     String
   source      String
   kind        String   @default("generic")
@@ -86,6 +87,7 @@ model DeviceCredential {
 
   @@unique([deviceId, credKey])
   @@index([deviceId, source])
+  @@index([scope])
 }
 
 model Stat {
@@ -400,18 +402,33 @@ model HardwareAsset {
   model        String   @default("")
   serial       String   @default("")
   chassis      String   @default("")
+  biosVendor   String   @default("")
+  biosVersion  String   @default("")
   collectedAt  DateTime @default(now())
 }
 
 model OperatingSystem {
-  id          String   @id @default(cuid())
-  deviceId    String
-  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  name        String
-  version     String   @default("")
-  build       String   @default("")
-  arch        String   @default("")
-  collectedAt DateTime @default(now())
+  id           String    @id @default(cuid())
+  deviceId     String
+  device       Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name         String
+  version      String    @default("")
+  build        String    @default("")
+  arch         String    @default("")
+  hostname     String    @default("")
+  fqdn         String    @default("")
+  kernel       String    @default("")
+  bootTime     DateTime?
+  timezone     String    @default("")
+  domain       String    @default("")
+  gateway      String    @default("")
+  dnsServers   String    @default("")
+  agentVersion String    @default("")
+  helperVersion String   @default("")
+  roles        String    @default("")
+  primaryIps   String    @default("")
+  uptimeSec    Int       @default(0)
+  collectedAt  DateTime  @default(now())
 
   @@index([deviceId, collectedAt])
 }
@@ -549,6 +566,8 @@ model SoftwareInstallation {
   softwareId  String
   software    Software @relation(fields: [softwareId], references: [id], onDelete: Cascade)
   source      String   @default("")
+  installDate String   @default("")
+  installPath String   @default("")
   collectedAt DateTime @default(now())
 
   @@index([deviceId, collectedAt])
@@ -610,6 +629,10 @@ model Service {
   displayName String   @default("")
   state       String   @default("")
   startType   String   @default("")
+  account     String   @default("")
+  binaryPath  String   @default("")
+  listenPorts String   @default("")
+  configNote  String   @default("")
   collectedAt DateTime @default(now())
 
   @@index([deviceId, name])
@@ -631,8 +654,10 @@ model Process {
   snapshot   ProcessSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   pid        Int
   name       String          @default("")
+  userName   String          @default("")
   cpu        Float           @default(0)
   ram        Float           @default(0)
+  rssBytes   BigInt          @default(0)
 
   @@index([snapshotId])
 }

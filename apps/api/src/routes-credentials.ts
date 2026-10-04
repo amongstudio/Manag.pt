@@ -12,45 +12,105 @@ import {
 import { dispatchQueuedCommands } from "./agent-ws.js"
 import { emitFleet } from "./io-emit.js"
 import { errorBody } from "./lib.js"
+import { operatorAuthorized } from "./operator-auth.js"
 import { decryptVaultSecret, prepareCredentialCommand, toPublicVault } from "./vault.js"
+import { createStoredCredential, deleteStoredCredential, revealStoredCredential, updateStoredCredential } from "./vault-store.js"
+
+async function actorOf(headers: Record<string, unknown>): Promise<string> {
+  const authed = await operatorAuthorized(headers)
+  return authed.username || "operator"
+}
 
 export async function registerCredentialRoutes(app: FastifyInstance): Promise<void> {
   app.get(`${API_PREFIX}/admin/devices/:id/credentials`, async (req, reply) => {
     const { id } = req.params as { id: string }
     const device = await prisma.device.findUnique({ where: { id }, select: { id: true } })
     if (!device) return reply.code(404).send(errorBody("not_found"))
+    const includeFleet = String((req.query as { includeFleet?: string }).includeFleet ?? "") === "1"
     const rows = await prisma.deviceCredential.findMany({
-      where: { deviceId: id },
+      where: { deviceId: id, scope: "device" },
       orderBy: [{ source: "asc" }, { target: "asc" }],
     })
-    return { credentials: rows.map(toPublicVault) }
+    const fleet = includeFleet ? await prisma.deviceCredential.findMany({ where: { scope: "fleet" }, orderBy: { target: "asc" } }) : []
+    return {
+      credentials: [...rows, ...fleet].map((row) => ({ ...toPublicVault(row), scope: row.scope, deviceId: row.deviceId })),
+    }
   })
 
   app.get(`${API_PREFIX}/admin/devices/:id/credentials/:credId`, async (req, reply) => {
     const { id, credId } = req.params as { id: string; credId: string }
-    const reveal = String((req.query as { reveal?: string }).reveal ?? "") === "1"
-    const row = await prisma.deviceCredential.findFirst({ where: { id: credId, deviceId: id } })
+    const row = await prisma.deviceCredential.findFirst({ where: { id: credId, deviceId: id, scope: "device" } })
     if (!row) return reply.code(404).send(errorBody("not_found"))
-    const pub = toPublicVault(row)
-    if (!reveal) return { credential: pub }
-    if (!row.secretEnc) return reply.code(404).send(errorBody("secret_not_vaulted"))
-    let secret = ""
-    try {
-      secret = decryptVaultSecret(row.secretEnc)
-    } catch {
-      return reply.code(500).send(errorBody("vault_decrypt_failed"))
+    return { credential: { ...toPublicVault(row), scope: row.scope, deviceId: row.deviceId } }
+  })
+
+  app.post(`${API_PREFIX}/admin/devices/:id/credentials`, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = (req.body ?? {}) as { target?: string; username?: string; secret?: string; comment?: string; scope?: string; source?: string }
+    const scope = body.scope === "fleet" ? "fleet" : "device"
+    if (scope === "device") {
+      const device = await prisma.device.findUnique({ where: { id }, select: { id: true } })
+      if (!device) return reply.code(404).send(errorBody("not_found"))
     }
-    app.log.info({ deviceId: id, credId: row.id, source: row.source, target: row.target }, "credential revealed")
-    return { credential: { ...pub, secret } }
+    try {
+      const credential = await createStoredCredential({
+        deviceId: scope === "fleet" ? null : id,
+        scope,
+        target: body.target ?? "",
+        username: body.username,
+        secret: body.secret ?? "",
+        comment: body.comment,
+        source: body.source,
+        actor: await actorOf(req.headers as Record<string, unknown>),
+      })
+      return { credential }
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "invalid_body"
+      return reply.code(400).send(errorBody(code))
+    }
+  })
+
+  app.put(`${API_PREFIX}/admin/devices/:id/credentials/:credId`, async (req, reply) => {
+    const { id, credId } = req.params as { id: string; credId: string }
+    const body = (req.body ?? {}) as { secret?: string; scope?: string }
+    const saved = await updateStoredCredential({
+      deviceId: body.scope === "fleet" ? null : id,
+      id: credId,
+      secret: body.secret ?? "",
+      actor: await actorOf(req.headers as Record<string, unknown>),
+    })
+    if (!saved.ok) return reply.code(saved.error === "not_found" ? 404 : 400).send(errorBody(saved.error))
+    return { credential: saved.credential }
+  })
+
+  app.post(`${API_PREFIX}/admin/devices/:id/credentials/:credId/reveal`, async (req, reply) => {
+    const { id, credId } = req.params as { id: string; credId: string }
+    const body = (req.body ?? {}) as { scope?: string }
+    try {
+      const revealed = await revealStoredCredential(body.scope === "fleet" ? null : id, credId)
+      app.log.info({ deviceId: id, credId }, "credential revealed")
+      return { credential: { target: revealed.target, secret: revealed.secret } }
+    } catch {
+      return reply.code(404).send(errorBody("not_found"))
+    }
   })
 
   app.delete(`${API_PREFIX}/admin/devices/:id/credentials/:credId`, async (req, reply) => {
     const { id, credId } = req.params as { id: string; credId: string }
-    const row = await prisma.deviceCredential.findFirst({ where: { id: credId, deviceId: id } })
-    if (!row) return reply.code(404).send(errorBody("not_found"))
-    await prisma.deviceCredential.delete({ where: { id: row.id } })
-    app.log.info({ deviceId: id, credId: row.id }, "vault credential deleted")
-    return { ok: true, id: row.id }
+    const removed = await deleteStoredCredential({
+      deviceId: id,
+      id: credId,
+      actor: await actorOf(req.headers as Record<string, unknown>),
+    })
+    if (!removed) {
+      const fleet = await deleteStoredCredential({
+        deviceId: null,
+        id: credId,
+        actor: await actorOf(req.headers as Record<string, unknown>),
+      })
+      if (!fleet) return reply.code(404).send(errorBody("not_found"))
+    }
+    return { ok: true, id: credId }
   })
 
   app.post(`${API_PREFIX}/admin/devices/:id/credentials/backup`, async (req, reply) => {

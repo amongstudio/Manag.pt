@@ -27,6 +27,7 @@ import (
 	"github.com/pc-manager/agent/internal/desktop"
 	"github.com/pc-manager/agent/internal/e2e"
 	"github.com/pc-manager/agent/internal/filemanager"
+	"github.com/pc-manager/agent/internal/inventory"
 	"github.com/pc-manager/agent/internal/lan"
 	"github.com/pc-manager/agent/internal/logger"
 	"github.com/pc-manager/agent/internal/mesh"
@@ -41,7 +42,11 @@ import (
 	"github.com/pc-manager/agent/internal/wsprotocol"
 )
 
-var Version = "3.3.0"
+var Version = "3.4.0"
+
+func init() {
+	inventory.AgentVersion = Version
+}
 
 const (
 	fastPoolSize = 8

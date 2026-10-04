@@ -44,13 +44,28 @@ type Hardware struct {
 	Model        string `json:"model"`
 	Serial       string `json:"serial"`
 	Chassis      string `json:"chassis"`
+	BiosVendor   string `json:"biosVendor"`
+	BiosVersion  string `json:"biosVersion"`
 }
 
 type OS struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Build   string `json:"build"`
-	Arch    string `json:"arch"`
+	Name          string `json:"name"`
+	Version       string `json:"version"`
+	Build         string `json:"build"`
+	Arch          string `json:"arch"`
+	Hostname      string `json:"hostname"`
+	FQDN          string `json:"fqdn"`
+	Kernel        string `json:"kernel"`
+	BootTime      string `json:"bootTime"`
+	Timezone      string `json:"timezone"`
+	Domain        string `json:"domain"`
+	Gateway       string `json:"gateway"`
+	DNSServers    string `json:"dnsServers"`
+	AgentVersion  string `json:"agentVersion"`
+	HelperVersion string `json:"helperVersion"`
+	Roles         string `json:"roles"`
+	PrimaryIPs    string `json:"primaryIps"`
+	UptimeSec     uint64 `json:"uptimeSec"`
 }
 
 type CPU struct {
@@ -114,10 +129,12 @@ type USB struct {
 }
 
 type Software struct {
-	Name      string `json:"name"`
-	Version   string `json:"version"`
-	Publisher string `json:"publisher"`
-	Source    string `json:"source"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Publisher   string `json:"publisher"`
+	Source      string `json:"source"`
+	InstallDate string `json:"installDate"`
+	InstallPath string `json:"installPath"`
 }
 
 type Driver struct {
@@ -139,14 +156,23 @@ type Service struct {
 	DisplayName string `json:"displayName"`
 	State       string `json:"state"`
 	StartType   string `json:"startType"`
+	Account     string `json:"account"`
+	BinaryPath  string `json:"binaryPath"`
+	ListenPorts string `json:"listenPorts"`
+	ConfigNote  string `json:"configNote"`
 }
 
 type Proc struct {
-	PID  int32   `json:"pid"`
-	Name string  `json:"name"`
-	CPU  float64 `json:"cpu"`
-	RAM  float32 `json:"ram"`
+	PID      int32   `json:"pid"`
+	Name     string  `json:"name"`
+	User     string  `json:"user"`
+	CPU      float64 `json:"cpu"`
+	RAM      float32 `json:"ram"`
+	RSSBytes uint64  `json:"rssBytes"`
 }
+
+// AgentVersion is set by the agent process. Empty when collect runs outside the agent.
+var AgentVersion string
 
 type Startup struct {
 	Name     string `json:"name"`
@@ -182,27 +208,35 @@ func Collect() Report {
 		Processes: []Proc{}, Startup: []Startup{}, Browsers: []Browser{}, Users: []User{}, Updates: []Update{},
 	}
 	if info, err := host.Info(); err == nil {
-		rep.OS = OS{Name: info.Platform, Version: info.PlatformVersion, Build: info.KernelVersion, Arch: runtime.GOARCH}
-	}
-	if infos, err := cpu.Info(); err == nil {
-		for _, item := range infos {
-			if len(rep.CPUs) >= 32 {
-				break
-			}
-			rep.CPUs = append(rep.CPUs, CPU{Name: item.ModelName, Cores: int(item.Cores), Threads: int(item.Cores), Mhz: item.Mhz})
+		boot := ""
+		if info.BootTime > 0 {
+			boot = time.Unix(int64(info.BootTime), 0).UTC().Format(time.RFC3339)
 		}
+		hostName, _ := os.Hostname()
+		rep.OS = OS{
+			Name: info.Platform, Version: info.PlatformVersion, Build: info.KernelVersion, Arch: runtime.GOARCH,
+			Hostname: hostName, Kernel: info.KernelVersion, BootTime: boot, Timezone: time.Now().Location().String(),
+			AgentVersion: AgentVersion, UptimeSec: info.Uptime,
+		}
+	}
+	if infos, err := cpu.Info(); err == nil && len(infos) > 0 {
+		cores, _ := cpu.Counts(false)
+		threads, _ := cpu.Counts(true)
+		if cores == 0 {
+			cores = int(infos[0].Cores)
+		}
+		if threads == 0 {
+			threads = len(infos)
+		}
+		rep.CPUs = append(rep.CPUs, CPU{Name: infos[0].ModelName, Cores: cores, Threads: threads, Mhz: infos[0].Mhz})
 	}
 	if vm, err := mem.VirtualMemory(); err == nil {
 		rep.Memory = append(rep.Memory, Memory{Bank: "total", SizeBytes: vm.Total})
 	}
-	if parts, err := disk.Partitions(false); err == nil {
+	if parts, err := disk.Partitions(true); err == nil {
 		seen := map[string]struct{}{}
 		for _, part := range parts {
-			if len(rep.Volumes) >= 32 {
-				break
-			}
-			usage, err := disk.Usage(part.Mountpoint)
-			if err != nil {
+			if len(rep.Volumes) >= 32 || part.Mountpoint == "" {
 				continue
 			}
 			key := part.Device + part.Mountpoint
@@ -210,8 +244,13 @@ func Collect() Report {
 				continue
 			}
 			seen[key] = struct{}{}
-			rep.Disks = append(rep.Disks, Disk{Name: part.Device, SizeBytes: usage.Total})
-			rep.Volumes = append(rep.Volumes, Volume{Mount: part.Mountpoint, FS: part.Fstype, SizeBytes: usage.Total, FreeBytes: usage.Free})
+			vol := Volume{Mount: part.Mountpoint, FS: part.Fstype}
+			if usage, err := disk.Usage(part.Mountpoint); err == nil {
+				vol.SizeBytes = usage.Total
+				vol.FreeBytes = usage.Free
+				rep.Disks = append(rep.Disks, Disk{Name: part.Device, SizeBytes: usage.Total})
+			}
+			rep.Volumes = append(rep.Volumes, vol)
 		}
 	}
 	if ifaces, err := net.Interfaces(); err == nil {
@@ -228,13 +267,18 @@ func Collect() Report {
 	}
 	if procs, err := process.Processes(); err == nil {
 		for _, proc := range procs {
-			if len(rep.Processes) >= 40 {
+			if len(rep.Processes) >= 120 {
 				break
 			}
 			name, _ := proc.Name()
+			user, _ := proc.Username()
 			cpuPct, _ := proc.CPUPercent()
 			memPct, _ := proc.MemoryPercent()
-			rep.Processes = append(rep.Processes, Proc{PID: proc.Pid, Name: name, CPU: cpuPct, RAM: memPct})
+			var rss uint64
+			if memInfo, err := proc.MemoryInfo(); err == nil && memInfo != nil {
+				rss = memInfo.RSS
+			}
+			rep.Processes = append(rep.Processes, Proc{PID: proc.Pid, Name: name, User: user, CPU: cpuPct, RAM: memPct, RSSBytes: rss})
 		}
 	}
 	collectPlatform(&rep)

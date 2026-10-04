@@ -1,4 +1,5 @@
 import { ConfigPage } from "@/components/config-page"
+import type { TunnelView } from "@/components/public-access"
 import { serverApi } from "@/lib/server-api"
 
 type Helper = {
@@ -23,9 +24,10 @@ type ConfigResponse = {
 }
 
 export default async function Page() {
-  const [config, settings] = await Promise.all([
+  const [config, settings, tunnel] = await Promise.all([
     serverApi<ConfigResponse>("/api/v1/admin/config"),
     serverApi<{ settings: { agent: { pollIntervalSec: number; idleHeartbeatSec: number } } }>("/api/v1/admin/settings"),
+    serverApi<{ tunnel: TunnelView }>("/api/v1/admin/tunnels"),
   ])
   return (
     <div className="flex flex-col gap-4">
@@ -35,7 +37,7 @@ export default async function Page() {
           Saved values override the YAML files in git. Files stay the defaults for a fresh checkout.
         </p>
       </div>
-      <ConfigPage initial={config} agent={settings?.settings.agent ?? null} />
+      <ConfigPage initial={config} agent={settings?.settings.agent ?? null} tunnel={tunnel?.tunnel ?? null} />
     </div>
   )
 }

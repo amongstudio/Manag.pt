@@ -1,5 +1,5 @@
 const DOCS = [
-  { group: "users", title: "Users", files: ["getting-started", "dashboard", "agent-install", "scripts", "monitoring", "inventory", "security-scans", "remote"] },
+  { group: "users", title: "Users", files: ["getting-started", "dashboard", "agent-install", "scripts", "monitoring", "inventory", "security-scans", "remote", "credentials", "public-access"] },
   { group: "developers", title: "Developers", files: ["architecture", "data-model", "agent", "testing"] },
   { group: "operators", title: "Operators", files: ["runbook"] },
 ] as const

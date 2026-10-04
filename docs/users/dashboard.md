@@ -63,6 +63,8 @@ Dashboard, API, Agent, and Helper tabs. YAML for alert rules, automations, scan 
 
 Process-start values stay in the environment: `OPERATOR_TOKEN`, `NEXT_PUBLIC_OPERATOR_TOKEN`, `NEXT_PUBLIC_WS_URL`, `ENROLLMENT_SECRET`, `CREDENTIALS_KEY`, `UPDATE_SIGNING_SECRET`, `PUBLIC_URL`, and `ENABLE_AGENT_COMPILE`. Helper `update_signing_secret` and `agent_exe` are not returned by the API.
 
+The Public access tab can publish the dashboard through ngrok, Cloudflare Tunnel, LocalTunnel, zrok, or Pinggy. See [Public access](public-access.md). The operator token is still required.
+
 ## Docs (`/docs`)
 
 Markdown shipped in `docs/`, grouped as Users, Developers, and Operators. Each page is a path such as `/docs/users/getting-started`. The API reads the files from the repo and escapes HTML before the dashboard renders it.

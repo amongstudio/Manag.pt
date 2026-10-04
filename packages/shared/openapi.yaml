@@ -1,7 +1,8 @@
 openapi: 3.1.0
 info:
   title: Mnag.pt API
-  version: 3.3.0
+  description: Remote management API for the dashboard, agent, inventory, scans, and optional public tunnels.
+  version: 3.4.0
   contact:
     name: Masria Code
     email: Contact@Mnag.pt.com
